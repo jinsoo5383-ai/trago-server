@@ -1,0 +1,259 @@
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const xml2js = require('xml2js');
+
+const app = express();
+app.use(cors());
+app.use(express.static(__dirname));
+app.use(express.json());
+
+const API_KEY = '54fa6a4fb68a227e04811bbe2844d5332bc4319c3105190c5e20758bc45af3ae';
+const KAMIS_KEY = '4c4c7781-ee4a-44fc-bc34-c015aba41070';
+const KAMIS_ID = '7624';
+
+app.get('/', (req, res) => {
+  res.json({ status: 'Trago 서버 작동 중', version: '5.0' });
+});
+
+// 기존 API는 OLD 키 사용
+// 1. 관세청 수입과일 물량 (품목별)
+app.get('/api/trade', async (req, res) => {
+  const { start = '202501', end = '202503', hs = '0803' } = req.query;
+  try {
+    const url = 'https://apis.data.go.kr/1220000/Itemtrade/getItemtradeList';
+    const response = await axios.get(url, {
+      params: { serviceKey: API_KEY, strtYymm: start, endYymm: end, hsSgn: hs, pageNo: 1, numOfRows: 100 }
+    });
+    const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+    const items = parsed?.response?.body?.items?.item || [];
+    const arr = Array.isArray(items) ? items : [items];
+    const monthly = {};
+    arr.forEach(item => {
+      if (item.year === '총계') return;
+      const ym = item.year;
+      if (!monthly[ym]) monthly[ym] = { year: ym, impWgt: 0, impDlr: 0 };
+      monthly[ym].impWgt += parseInt(item.impWgt || 0);
+      monthly[ym].impDlr += parseInt(item.impDlr || 0);
+    });
+    const result = Object.values(monthly).sort((a,b) => a.year.localeCompare(b.year));
+    res.json({ success: true, count: result.length, data: result });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 2. 선박 입출항 정보
+app.get('/api/vessel', async (req, res) => {
+  const { port = '020', sde, ede } = req.query;
+  const fmt = d => d.toISOString().slice(0,10).replace(/-/g,'');
+  // 한국시간 오늘 날짜
+  const getToday = () => {
+    const kst = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+    return kst.toISOString().slice(0,10).replace(/-/g,'');
+  };
+  const startDate = sde || getToday();
+  const endDate = ede || startDate;
+  try {
+    const url = 'https://apis.data.go.kr/1192000/VsslEtrynd5/Info5';
+    const response = await axios.get(url, {
+      params: { serviceKey: API_KEY, prtAgCd: port, sde: startDate, ede: endDate, deGb: 'I', numOfRows: 30, pageNo: 1 }
+    });
+    const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+    const items = parsed?.response?.body?.items?.item || [];
+    const arr = Array.isArray(items) ? items : [items];
+    // 데이터 없으면 하루 전 자동 재시도
+    if (arr.length === 0 && !sde) {
+      const kst = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+      kst.setUTCDate(kst.getUTCDate() - 1);
+      const yesterday = kst.toISOString().slice(0,10).replace(/-/g,'');
+      const res2 = await axios.get('https://apis.data.go.kr/1192000/VsslEtrynd5/Info5', {
+        params: { serviceKey: API_KEY, prtAgCd: port, sde: yesterday, ede: yesterday, deGb: 'I', numOfRows: 30, pageNo: 1 }
+      });
+      const parsed2 = await xml2js.parseStringPromise(res2.data, { explicitArray: false });
+      const items2 = parsed2?.response?.body?.items?.item || [];
+      const arr2 = Array.isArray(items2) ? items2 : [items2];
+      if (arr2.length > 0) {
+        return res.json({ success: true, count: arr2.length, date: yesterday, data: arr2 });
+      }
+    }
+    res.json({ success: true, count: arr.length, date: startDate, data: arr });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 3. KAMIS 수입과일 오늘 실시간 가격
+app.get('/api/fruit-prices', async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0,10).replace(/-/g, '.');
+    const url = 'https://www.kamis.or.kr/service/price/xml.do';
+    const response = await axios.get(url, {
+      params: { action: 'dailySalesList', p_date: today, p_cert_key: KAMIS_KEY, p_cert_id: KAMIS_ID, p_returntype: 'json' }
+    });
+    const allPrices = response.data?.price || [];
+    const fruits = ['바나나', '망고', '파인애플', '오렌지', '레몬', '포도', '체리'];
+    const fruitPrices = allPrices.filter(p =>
+      fruits.some(f => p.productName?.includes(f)) && p.product_cls_name === '도매'
+    );
+    const result = fruitPrices.map(p => ({
+      name: p.productName, unit: p.unit,
+      today: p.dpr1, yesterday: p.dpr2, lastMonth: p.dpr3, lastYear: p.dpr4,
+      direction: p.direction, change: p.value, date: p.lastest_day
+    }));
+    res.json({ success: true, date: today, count: result.length, data: result });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 4. KAMIS 기간별 가격
+app.get('/api/price', async (req, res) => {
+  const { start = '2025-01-01', end, item = '42650' } = req.query;
+  const endDate = end || new Date().toISOString().slice(0,10);
+  try {
+    const url = 'https://www.kamis.or.kr/service/price/xml.do';
+    const response = await axios.get(url, {
+      params: {
+        action: 'periodProductList', p_startday: start, p_endday: endDate,
+        p_itemcategorycode: '400', p_itemcode: item, p_kindcode: '00',
+        p_productrankcode: '', p_convert_kg_yn: 'Y',
+        p_cert_key: KAMIS_KEY, p_cert_id: KAMIS_ID, p_returntype: 'json'
+      }
+    });
+    res.json({ success: true, data: response.data });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 5. 가락시장 수입품목 직접 가격
+app.get('/api/garak', async (req, res) => {
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10).replace(/-/g,'');
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
+  const p_ymd = req.query.date || fmt(today);
+  const p_jymd = fmt(yesterday);
+  const p_jjymd = new Date(today.getFullYear()-1, today.getMonth(), today.getDate()).toISOString().slice(0,10).replace(/-/g,'');
+  try {
+    const url = 'http://www.garak.co.kr/homepage/publicdata/dataJsonOpen.do';
+    const response = await axios.get(url, {
+      params: {
+        id: '7435', passwd: 'dkwlxm12!@', dataid: 'data65',
+        pagesize: 100, pageidx: 1, 'portal.templet': 'false',
+        p_ymd, p_jymd, p_jjymd, p_buryu: '2', p_pos_gubun: '1', d_cd: '2'
+      }
+    });
+    const items = response.data?.resultData || [];
+    const fruitItems = items.filter(i => (i.PUM_NM_A||'').includes('수입'));
+    res.json({ success: true, date: p_ymd, count: fruitItems.length, total: items.length, data: fruitItems, raw: items.slice(0,5) });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 6. 가락시장 기간별 가격 (특정 품목)
+app.get('/api/garak/history', async (req, res) => {
+  const { item = '바나나', grade = '상', days = '30' } = req.query;
+  const numDays = parseInt(days);
+  const results = [];
+  for (let i = numDays; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    const p_ymd = d.toISOString().slice(0,10).replace(/-/g,'');
+    try {
+      const response = await axios.get('http://www.garak.co.kr/homepage/publicdata/dataJsonOpen.do', {
+        params: {
+          id: '7435', passwd: 'dkwlxm12!@', dataid: 'data65',
+          pagesize: 100, pageidx: 1, 'portal.templet': 'false',
+          p_ymd, p_jymd: p_ymd, p_jjymd: p_ymd,
+          p_buryu: '2', p_pos_gubun: '1', d_cd: '2'
+        },
+        timeout: 5000
+      });
+      const items = response.data?.resultData || [];
+      const found = items.find(x => (x.PUM_NM_A||'').includes(item) && x.G_NAME_A === grade);
+      if (found && found.AV_P_A > 0) {
+        results.push({ date: p_ymd, price: found.AV_P_A, unit: found.U_NAME?.trim() });
+      }
+    } catch(e) { /* 날짜 스킵 */ }
+  }
+  res.json({ success: true, item, grade, count: results.length, data: results });
+});
+
+// 7. 관세청 국가별 수입 물량
+app.get('/api/trade/country', async (req, res) => {
+  const { start = '202501', end = '202503', hs = '0803', country = 'PH' } = req.query;
+  try {
+    const url = 'https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList';
+    const response = await axios.get(url, {
+      params: { serviceKey: API_KEY, strtYymm: start, endYymm: end, hsSgn: hs, cntyCd: country, pageNo: 1, numOfRows: 50 }
+    });
+    const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+    const items = parsed?.response?.body?.items?.item || [];
+    const arr = Array.isArray(items) ? items : [items];
+    const result = arr.filter(i => i.year !== '총계').map(i => ({
+      year: i.year, country: i.statCdCntnKor1, countryCode: i.statCd,
+      item: i.statKor, impWgt: parseInt(i.impWgt || 0), impDlr: parseInt(i.impDlr || 0)
+    }));
+    res.json({ success: true, country, hs, count: result.length, data: result });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 8. 원산지별 수입 물량 비교 (바나나 주요 국가 한번에)
+app.get('/api/trade/origins', async (req, res) => {
+  const { start = '202501', end = '202503', hs = '0803' } = req.query;
+  const countries = [
+    { code: 'PH', name: '필리핀', flag: '🇵🇭' },
+    { code: 'VN', name: '베트남', flag: '🇻🇳' },
+    { code: 'EC', name: '에콰도르', flag: '🇪🇨' },
+    { code: 'CR', name: '코스타리카', flag: '🇨🇷' },
+    { code: 'GT', name: '과테말라', flag: '🇬🇹' },
+    { code: 'KH', name: '캄보디아', flag: '🇰🇭' },
+    { code: 'TH', name: '태국', flag: '🇹🇭' },
+    { code: 'US', name: '미국', flag: '🇺🇸' },
+    { code: 'CL', name: '칠레', flag: '🇨🇱' },
+    { code: 'AU', name: '호주', flag: '🇦🇺' },
+    { code: 'NZ', name: '뉴질랜드', flag: '🇳🇿' },
+    { code: 'GR', name: '그리스', flag: '🇬🇷' },
+    { code: 'PE', name: '페루', flag: '🇵🇪' },
+    { code: 'BR', name: '브라질', flag: '🇧🇷' },
+    { code: 'TW', name: '대만', flag: '🇹🇼' },
+    { code: 'ZA', name: '남아공', flag: '🇿🇦' },
+    { code: 'ES', name: '스페인', flag: '🇪🇸' },
+  ];
+  const url = 'https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList';
+  const results = [];
+  for (const c of countries) {
+    try {
+      const response = await axios.get(url, {
+        params: { serviceKey: API_KEY, strtYymm: start, endYymm: end, hsSgn: hs, cntyCd: c.code, pageNo: 1, numOfRows: 50 },
+        timeout: 5000
+      });
+      const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+      const items = parsed?.response?.body?.items?.item || [];
+      const arr = Array.isArray(items) ? items : [items];
+      const monthly = arr.filter(i => i.year !== '총계');
+      if (monthly.length > 0) {
+        const totalWgt = monthly.reduce((s, i) => s + parseInt(i.impWgt || 0), 0);
+        const totalDlr = monthly.reduce((s, i) => s + parseInt(i.impDlr || 0), 0);
+        if (totalWgt >= 1000) results.push({ ...c, impWgt: totalWgt, impDlr: totalDlr, monthly }); // 1톤 이상만
+      }
+    } catch(e) { /* 국가 스킵 */ }
+  }
+  results.sort((a, b) => b.impWgt - a.impWgt);
+  res.json({ success: true, hs, period: `${start}~${end}`, count: results.length, data: results });
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
+  console.log(`   수입과일 실시간 가격: http://localhost:${PORT}/api/fruit-prices`);
+  console.log(`   관세청 수입물량:      http://localhost:${PORT}/api/trade`);
+  console.log(`   국가별 수입물량:      http://localhost:${PORT}/api/trade/country`);
+  console.log(`   원산지 비교:          http://localhost:${PORT}/api/trade/origins`);
+  console.log(`   선박 정보:            http://localhost:${PORT}/api/vessel`);
+  console.log(`   가락시장 가격:        http://localhost:${PORT}/api/garak`);
+});

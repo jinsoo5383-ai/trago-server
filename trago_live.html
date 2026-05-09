@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trago — 수입과일 실시간 시세</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #2c2c2a; }
+header { background: #1D9E75; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+header h1 { font-size: 20px; font-weight: 600; }
+.live-badge { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.live-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+.top-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 20px; }
+.metric { background: white; border-radius: 10px; border: 0.5px solid #d3d1c7; padding: 16px; }
+.metric .label { font-size: 12px; color: #73726c; margin-bottom: 6px; }
+.metric .value { font-size: 22px; font-weight: 500; }
+.metric .sub { font-size: 11px; color: #888780; margin-top: 3px; }
+.up { color: #E24B4A; }
+.down { color: #1D9E75; }
+.same { color: #888780; }
+.refresh-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.refresh-row h2 { font-size: 16px; font-weight: 500; }
+button { height: 36px; padding: 0 18px; background: #1D9E75; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; }
+button:hover { opacity: 0.85; }
+.btn-sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.btn-gray { background: #888780; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.fruit-card { background: white; border-radius: 12px; border: 0.5px solid #d3d1c7; padding: 18px; transition: transform 0.15s; }
+.fruit-card:hover { transform: translateY(-2px); border-color: #1D9E75; }
+.fruit-card .name { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.fruit-card .unit { font-size: 11px; color: #888780; margin-bottom: 12px; }
+.fruit-card .price { font-size: 26px; font-weight: 500; margin-bottom: 8px; }
+.fruit-card .compare { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.compare-item { background: #f5f5f0; border-radius: 6px; padding: 6px 8px; }
+.compare-item .c-label { font-size: 10px; color: #888780; margin-bottom: 2px; }
+.compare-item .c-val { font-size: 12px; font-weight: 500; }
+.change-badge { display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; margin-bottom: 10px; }
+.change-badge.up { background: #FCEBEB; color: #A32D2D; }
+.change-badge.down { background: #E1F5EE; color: #0F6E56; }
+.change-badge.same { background: #f5f5f0; color: #888780; }
+.chart-card { background: white; border-radius: 12px; border: 0.5px solid #d3d1c7; padding: 20px; margin-bottom: 20px; }
+.alert-box { background: #FAEEDA; border: 0.5px solid #EF9F27; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: #633806; display: none; }
+.status-bar { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+.status-bar.loading { background: #E6F1FB; color: #185FA5; }
+.status-bar.success { background: #E1F5EE; color: #0F6E56; }
+.status-bar.error { background: #FCEBEB; color: #A32D2D; }
+.mini-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+.mini-metric { background: #f5f5f0; border-radius: 8px; padding: 12px; }
+.mini-metric .ml { font-size: 11px; color: #73726c; margin-bottom: 4px; }
+.mini-metric .mv { font-size: 18px; font-weight: 500; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Trago — 수입과일 실시간 시세</h1>
+    <div style="font-size:12px;opacity:0.8;margin-top:2px;">가락시장 KAMIS + 관세청 연동</div>
+  </div>
+  <div class="live-badge"><div class="live-dot"></div>실시간 연결</div>
+</header>
+
+<div class="container">
+  <div id="statusBar" class="status-bar loading">데이터 불러오는 중...</div>
+
+  <div class="top-row">
+    <div class="metric"><div class="label">바나나 도매가 (13kg)</div><div class="value" id="m-banana">—</div><div class="sub" id="m-banana-sub">—</div></div>
+    <div class="metric"><div class="label">망고 도매가 (5kg)</div><div class="value" id="m-mango">—</div><div class="sub" id="m-mango-sub">—</div></div>
+    <div class="metric"><div class="label">파인애플 도매가 (12kg)</div><div class="value" id="m-pine">—</div><div class="sub" id="m-pine-sub">—</div></div>
+    <div class="metric"><div class="label">오렌지 도매가 (18kg)</div><div class="value" id="m-orange">—</div><div class="sub" id="m-orange-sub">—</div></div>
+  </div>
+
+  <div class="refresh-row">
+    <h2>수입과일 전체 시세</h2>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span id="updateTime" style="font-size:12px;color:#888780;">—</span>
+      <button onclick="loadPrices()">새로고침</button>
+    </div>
+  </div>
+
+  <div class="grid" id="fruitGrid">
+    <div style="grid-column:1/-1;text-align:center;padding:40px;color:#888;">불러오는 중...</div>
+  </div>
+
+
+  <!-- 선박 입출항 섹션 -->
+  <div class="chart-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;" id="vesselTitle">부산항 입항 선박 현황</div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">해양수산부 PORT-MIS 실시간 연동 · 냉동선 자동 감지</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="portSelect" style="height:36px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 10px;font-size:13px;background:white;color:#2c2c2a;outline:none;">
+          <option value="020">부산항</option>
+          <option value="030">인천항</option>
+          <option value="050">경인항(평택·당진)</option>
+          
+        </select>
+        <button onclick="loadVessels()" style="height:36px;padding:0 16px;background:#1D9E75;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">불러오기</button>
+      </div>
+    </div>
+    <div id="vesselAlert" style="display:none;background:#FAEEDA;border:0.5px solid #EF9F27;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#633806;"></div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;">
+      <div style="background:#f5f5f0;border-radius:8px;padding:12px;"><div style="font-size:11px;color:#73726c;margin-bottom:4px;">총 입항 선박</div><div id="v-total" style="font-size:18px;font-weight:500;">—</div></div>
+      <div style="background:#E1F5EE;border-radius:8px;padding:12px;"><div style="font-size:11px;color:#0F6E56;margin-bottom:4px;">냉동·냉장선</div><div id="v-reefer" style="font-size:18px;font-weight:500;color:#0F6E56;">—</div></div>
+      <div style="background:#E6F1FB;border-radius:8px;padding:12px;"><div style="font-size:11px;color:#185FA5;margin-bottom:4px;">필리핀·태국발</div><div id="v-fruit" style="font-size:18px;font-weight:500;color:#185FA5;">—</div></div>
+      <div style="background:#f5f5f0;border-radius:8px;padding:12px;"><div style="font-size:11px;color:#73726c;margin-bottom:4px;">컨테이너선</div><div id="v-container" style="font-size:18px;font-weight:500;">—</div></div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">선박명</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">국적</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">선박종류</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">출발지</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">입항목적</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">과일 가능성</th>
+          </tr>
+        </thead>
+        <tbody id="vesselTable">
+          <tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">"불러오기" 버튼을 클릭하세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 가락시장 직접 경락가격 -->
+  <div class="chart-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;">가락시장 수입품목 경락가격 <span style="font-size:12px;background:#E1F5EE;color:#0F6E56;padding:2px 8px;border-radius:20px;margin-left:6px;">직접 연동</span></div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">서울농수산식품공사 · 등급별 실거래가 · 상승=빨강 하락=파랑</div>
+      </div>
+      <button onclick="loadGarak()" style="height:36px;padding:0 16px;background:#1D9E75;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">오늘 시세</button>
+    </div>
+
+    <!-- 오늘 시세 테이블 -->
+    <div style="overflow-x:auto;margin-bottom:20px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">품목</th>
+            <th style="text-align:center;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">등급</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">단위</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">오늘</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">전일</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">전일대비</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">전년대비</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">원산지</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;width:120px;">추이</th>
+          </tr>
+        </thead>
+        <tbody id="garakBody">
+          <tr><td colspan="9" style="text-align:center;color:#888;padding:24px;">"오늘 시세" 버튼을 클릭하세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 기간별 추이 차트 -->
+    <div style="border-top:0.5px solid #f1efe8;padding-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:14px;font-weight:500;">품목별 가격 추이</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <select id="garakItem" style="height:32px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 10px;font-size:12px;background:white;outline:none;">
+            <option value="바나나">바나나 (13kg)</option>
+            <option value="망고">망고 (5kg)</option>
+            <option value="파인애플">파인애플 (12kg)</option>
+            <option value="골드파인애플">골드파인애플 (12kg)</option>
+            <option value="오렌지 네블">오렌지 네블 (18kg)</option>
+            <option value="포도">포도 (8kg)</option>
+            <option value="키위 기타">키위 (6kg)</option>
+          </select>
+          <select id="garakGrade" style="height:32px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 10px;font-size:12px;background:white;outline:none;">
+            <option value="특">특</option>
+            <option value="상" selected>상</option>
+            <option value="중">중</option>
+            <option value="하">하</option>
+          </select>
+          <select id="garakDays" style="height:32px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 10px;font-size:12px;background:white;outline:none;">
+            <option value="14">2주</option>
+            <option value="30" selected>1개월</option>
+            <option value="60">2개월</option>
+          </select>
+          <button onclick="loadGarakHistory()" style="height:32px;padding:0 14px;background:#2c2c2a;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;">조회</button>
+        </div>
+      </div>
+      <div id="garakChartLoading" style="display:none;text-align:center;padding:20px;color:#888;font-size:13px;">📊 데이터 불러오는 중... (날짜별 순차 조회)</div>
+      <div style="position:relative;height:220px;">
+        <canvas id="garakChart" role="img" aria-label="가락시장 가격 추이"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 원산지별 수입물량 -->
+  <div class="chart-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;">원산지별 수입물량 <span style="font-size:12px;background:#E6F1FB;color:#185FA5;padding:2px 8px;border-radius:20px;margin-left:6px;">관세청 실데이터</span></div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">국가별 월별 수입량 · 톤 기준</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+      <select id="originHs" style="height:36px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 12px;font-size:13px;background:white;outline:none;">
+        <option value="0803">바나나</option>
+        <option value="080450">망고·망고스틴</option>
+        <option value="080430">파인애플</option>
+        <option value="080510">오렌지</option>
+        <option value="080550">레몬·라임</option>
+        <option value="0806">포도</option>
+        <option value="081050">키위</option>
+        <option value="081040">블루베리</option>
+      </select>
+      <select id="originStart" style="height:36px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 12px;font-size:13px;background:white;outline:none;">
+        <option value="202501">2025년 1월~</option>
+        <option value="202504">2025년 4월~</option>
+        <option value="202507">2025년 7월~</option>
+        <option value="202510">2025년 10월~</option>
+        <option value="202601">2026년 1월~</option>
+        <option value="202604">2026년 4월~</option>
+      </select>
+      <select id="originEnd" style="height:36px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 12px;font-size:13px;background:white;outline:none;">
+        <option value="202503">~2025년 3월</option>
+        <option value="202506">~2025년 6월</option>
+        <option value="202509">~2025년 9월</option>
+        <option value="202512">~2025년 12월</option>
+        <option value="202603">~2026년 3월</option>
+        <option value="202604">~2026년 4월</option>
+      </select>
+      <button onclick="loadOrigins()" style="height:36px;padding:0 20px;background:#1D9E75;color:white;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;">조회</button>
+    </div>
+
+    <div id="originLoading" style="display:none;text-align:center;padding:20px;color:#888;font-size:13px;">🌍 국가별 데이터 조회 중...</div>
+
+    <!-- 요약 메트릭 -->
+    <div id="originMetrics" style="display:none;margin-bottom:16px;">
+      <div class="mini-metrics">
+        <div class="mini-metric"><div class="ml">총 수입량</div><div class="mv" id="o-total">—</div></div>
+        <div class="mini-metric"><div class="ml">1위 원산지</div><div class="mv" id="o-first">—</div></div>
+        <div class="mini-metric"><div class="ml">국가 수</div><div class="mv" id="o-count">—</div></div>
+      </div>
+    </div>
+
+    <!-- 차트 + 테이블 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;" id="originContent" style="display:none;">
+      <div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:#73726c;">수입량 비중</div>
+        <div style="position:relative;height:220px;">
+          <canvas id="originPieChart" role="img" aria-label="원산지별 비중"></canvas>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:#73726c;">국가별 수입량 (톤)</div>
+        <div style="position:relative;height:220px;">
+          <canvas id="originBarChart" role="img" aria-label="국가별 수입량"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 상세 테이블 -->
+    <div style="overflow-x:auto;margin-top:16px;" id="originTableWrap" style="display:none;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">순위</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">원산지</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">수입량(톤)</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">수입금액($)</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">비중</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;width:120px;">비중 바</th>
+          </tr>
+        </thead>
+        <tbody id="originTableBody">
+          <tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">조회 버튼을 클릭하세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 수입 물량 차트 -->
+  <div class="chart-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;">수입 물량 추이 (관세청 실데이터)</div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">월별 수입량 · 톤 기준 · 빨간막대=급증주의</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button id="tb-0803" class="btn-sm" onclick="loadTradeChart('0803','0803')">바나나</button>
+        <button id="tb-080450" class="btn-sm btn-gray" onclick="loadTradeChart('080450','080450')">망고·망고스틴</button>
+        <button id="tb-080430" class="btn-sm btn-gray" onclick="loadTradeChart('080430','080430')">파인애플</button>
+        <button id="tb-080510" class="btn-sm btn-gray" onclick="loadTradeChart('080510','080510')">오렌지</button>
+        <button id="tb-080550" class="btn-sm btn-gray" onclick="loadTradeChart('080550','080550')">레몬·라임</button>
+        <button id="tb-0806" class="btn-sm btn-gray" onclick="loadTradeChart('0806','0806')">포도</button>
+        <button id="tb-081050" class="btn-sm btn-gray" onclick="loadTradeChart('081050','081050')">키위</button>
+        <button id="tb-081040" class="btn-sm btn-gray" onclick="loadTradeChart('081040','081040')">블루베리</button>
+      </div>
+    </div>
+    <div id="tradeAlert" class="alert-box"></div>
+    <div class="mini-metrics">
+      <div class="mini-metric"><div class="ml">최근월 수입량</div><div class="mv" id="t-latest">—</div></div>
+      <div class="mini-metric"><div class="ml">전월 대비</div><div class="mv" id="t-change">—</div></div>
+      <div class="mini-metric"><div class="ml">수입금액</div><div class="mv" id="t-dlr">—</div></div>
+    </div>
+    <div style="position:relative;height:240px;">
+      <canvas id="tradeChart" role="img" aria-label="수입과일 물량 추이"></canvas>
+    </div>
+  </div>
+
+  <!-- 가격 추이 차트 -->
+  <div class="chart-card">
+    <div style="font-size:15px;font-weight:500;margin-bottom:16px;">품목별 가격 비교 (1년전 → 오늘)</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+      <button id="pb-바나나" class="btn-sm" onclick="loadPriceChart('바나나','pb-바나나')">바나나</button>
+      <button id="pb-망고" class="btn-sm btn-gray" onclick="loadPriceChart('망고','pb-망고')">망고</button>
+      <button id="pb-파인애플" class="btn-sm btn-gray" onclick="loadPriceChart('파인애플','pb-파인애플')">파인애플</button>
+      <button id="pb-오렌지" class="btn-sm btn-gray" onclick="loadPriceChart('오렌지','pb-오렌지')">오렌지</button>
+    </div>
+    <div style="position:relative;height:240px;">
+      <canvas id="priceChart" role="img" aria-label="수입과일 가격 비교"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const SERVER = 'http://localhost:3000';
+let tradeChart, priceChart;
+let priceData = [];
+
+function fmt(v) {
+  if (!v || v === '-') return '—';
+  return '₩' + parseInt(String(v).replace(/,/g,'')).toLocaleString();
+}
+
+async function loadPrices() {
+  setStatus('가락시장 실시간 시세 불러오는 중...', 'loading');
+  try {
+    const res = await fetch(`${SERVER}/api/fruit-prices`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    priceData = json.data;
+    setStatus(`✓ ${json.date} 기준 · ${json.count}개 품목 로드 완료`, 'success');
+    document.getElementById('updateTime').textContent = '업데이트: ' + new Date().toLocaleTimeString('ko-KR');
+    renderMetrics(json.data);
+    renderGrid(json.data);
+    setTimeout(() => loadPriceChart('바나나', 'pb-바나나'), 300);
+  } catch(e) {
+    setStatus('서버 연결 오류 — node index.js 로 서버를 먼저 시작하세요', 'error');
+  }
+}
+
+function renderMetrics(data) {
+  const find = (k) => data.find(d => d.name?.includes(k));
+  const set = (id, subId, item) => {
+    if (!item) return;
+    document.getElementById(id).textContent = fmt(item.today);
+    const dir = item.direction;
+    const arrow = dir==='1'?'▲':dir==='0'?'▼':'—';
+    const cls = dir==='1'?'up':dir==='0'?'down':'same';
+    document.getElementById(subId).innerHTML = `<span class="${cls}">${arrow} ${item.change}% 전일 대비</span>`;
+  };
+  set('m-banana','m-banana-sub', find('바나나'));
+  set('m-mango','m-mango-sub', find('망고'));
+  set('m-pine','m-pine-sub', find('파인애플'));
+  set('m-orange','m-orange-sub', find('오렌지'));
+}
+
+function renderGrid(data) {
+  if (!data.length) { document.getElementById('fruitGrid').innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:#888;">데이터 없음</div>'; return; }
+  document.getElementById('fruitGrid').innerHTML = data.map(d => {
+    const dir = d.direction;
+    const bc = dir==='1'?'up':dir==='0'?'down':'same';
+    const arrow = dir==='1'?'▲':dir==='0'?'▼':'—';
+    return `<div class="fruit-card">
+      <div class="name">${d.name}</div>
+      <div class="unit">${d.unit} · ${d.date}</div>
+      <div class="price ${bc}">${fmt(d.today)}</div>
+      <span class="change-badge ${bc}">${arrow} ${d.change}% 전일 대비</span>
+      <div class="compare">
+        <div class="compare-item"><div class="c-label">1개월전</div><div class="c-val">${fmt(d.lastMonth)}</div></div>
+        <div class="compare-item"><div class="c-label">어제</div><div class="c-val">${fmt(d.yesterday)}</div></div>
+        <div class="compare-item"><div class="c-label">1년전</div><div class="c-val">${fmt(d.lastYear)}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadTradeChart(hs, hsKey) {
+  ['0803','080450','080430','080510','080550','0806','081050','081040'].forEach(k => {
+    const b = document.getElementById('tb-'+k);
+    if (b) b.className = k===hsKey ? 'btn-sm' : 'btn-sm btn-gray';
+  });
+
+  const now = new Date();
+  const end = now.toISOString().slice(0,7).replace('-','');
+  const s = new Date(now); s.setMonth(s.getMonth()-11);
+  const start = s.toISOString().slice(0,7).replace('-','');
+
+  try {
+    const res = await fetch(`${SERVER}/api/trade?start=${start}&end=${end}&hs=${hs}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) return;
+
+    const data = json.data;
+    const latest = data[data.length-1];
+    const prev = data.length>=2 ? data[data.length-2] : null;
+
+    document.getElementById('t-latest').textContent = Math.round(latest.impWgt/1000).toLocaleString()+'톤';
+    document.getElementById('t-dlr').textContent = '$'+Math.round(latest.impDlr/1000).toLocaleString()+'천';
+
+    if (prev) {
+      const chg = ((latest.impWgt-prev.impWgt)/prev.impWgt*100).toFixed(1);
+      const isUp = parseFloat(chg)>0;
+      document.getElementById('t-change').innerHTML = `<span class="${isUp?'up':'down'}">${isUp?'▲':'▼'} ${Math.abs(chg)}%</span>`;
+      const alertEl = document.getElementById('tradeAlert');
+      if (Math.abs(chg)>=15) {
+        alertEl.style.display='block';
+        alertEl.textContent = `⚠ 수입물량 ${isUp?'급증':'급감'} 감지 — 전월 대비 ${Math.abs(chg)}% ${isUp?'증가. 가격 하락 가능성 — 빠른 판매 권장':'감소. 가격 상승 주의'}`;
+      } else {
+        alertEl.style.display='none';
+      }
+    }
+
+    const labels = data.map(d=>d.year);
+    const weights = data.map(d=>Math.round(d.impWgt/1000));
+    const colors = weights.map((w,i) => {
+      if (i===0) return 'rgba(29,158,117,0.6)';
+      const chg = (w-weights[i-1])/weights[i-1]*100;
+      return chg>15 ? 'rgba(226,75,74,0.7)' : 'rgba(29,158,117,0.6)';
+    });
+
+    if (tradeChart) tradeChart.destroy();
+    tradeChart = new Chart(document.getElementById('tradeChart'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label:'수입량(톤)', data:weights, backgroundColor:colors, borderRadius:4 }] },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
+        scales: {
+          x:{ ticks:{font:{size:11},color:'#888780',maxTicksLimit:12}, grid:{display:false} },
+          y:{ ticks:{font:{size:11},color:'#888780',callback:v=>v.toLocaleString()+'톤'}, grid:{color:'rgba(136,135,128,0.12)'} }
+        }
+      }
+    });
+  } catch(e) { console.log('물량 차트 오류:', e); }
+}
+
+function loadPriceChart(keyword, btnId) {
+  ['pb-바나나','pb-망고','pb-파인애플','pb-오렌지'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.className = id===btnId ? 'btn-sm' : 'btn-sm btn-gray';
+  });
+
+  const item = priceData.find(d => d.name?.includes(keyword));
+  if (!item) return;
+
+  const labels = ['1년전', '1개월전', '어제', '오늘'];
+  const prices = [item.lastYear, item.lastMonth, item.yesterday, item.today].map(v => {
+    if (!v || v==='-') return null;
+    return parseInt(String(v).replace(/,/g,''));
+  });
+
+  if (priceChart) priceChart.destroy();
+  priceChart = new Chart(document.getElementById('priceChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: item.name,
+        data: prices,
+        borderColor: '#1D9E75',
+        backgroundColor: 'rgba(29,158,117,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 6,
+        pointBackgroundColor: '#1D9E75',
+        borderWidth: 2.5
+      }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales: {
+        x:{ ticks:{font:{size:13},color:'#888780'}, grid:{display:false} },
+        y:{ ticks:{font:{size:11},color:'#888780',callback:v=>'₩'+v.toLocaleString()}, grid:{color:'rgba(136,135,128,0.12)'} }
+      }
+    }
+  });
+}
+
+
+// ===== 선박 입출항 =====
+async function loadVessels() {
+  const port = document.getElementById('portSelect').value;
+  const portName = document.getElementById('portSelect').options[document.getElementById('portSelect').selectedIndex].text;
+  document.getElementById('vesselTitle').textContent = portName + ' 입항 선박 현황';
+  try {
+    const res = await fetch(`${SERVER}/api/vessel?port=${port}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) {
+      document.getElementById('vesselTable').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">오늘 입항 데이터 없음</td></tr>';
+      return;
+    }
+    const data = json.data;
+    const fruitOrigins = ['PH','TH','EC','VN','MY','ID','MX'];
+    const fruitPorts = ['MANILA','CEBU','DAVAO','BANGKOK','VIETNAM','HO CHI','ECUADOR','GUAYAQUIL','MINDANAO'];
+    
+    const reefers = data.filter(d => d.vsslKndCd === '32');
+    const containers = data.filter(d => d.vsslKndCd === '41');
+    const fruitVessels = data.filter(d => {
+      const from = (d.frstDpmprtPrtNm || '').toUpperCase();
+      const nat = d.vsslNltyCd || '';
+      return fruitOrigins.includes(nat) || fruitPorts.some(p => from.includes(p)) || d.vsslKndCd === '32';
+    });
+
+    document.getElementById('v-total').textContent = data.length + '척';
+    document.getElementById('v-reefer').textContent = reefers.length + '척';
+    document.getElementById('v-fruit').textContent = fruitVessels.length + '척';
+    document.getElementById('v-container').textContent = containers.length + '척';
+
+    const alertEl = document.getElementById('vesselAlert');
+    if (reefers.length >= 3) {
+      alertEl.style.display = 'block';
+      alertEl.textContent = `⚠ 냉동·냉장선 ${reefers.length}척 오늘 입항 — 수입과일 물량 집중 주의`;
+    } else {
+      alertEl.style.display = 'none';
+    }
+
+    document.getElementById('vesselTable').innerHTML = data.map(d => {
+      const isReefer = d.vsslKndCd === '32';
+      const isFruit = fruitVessels.includes(d);
+      const fruitBadge = isReefer
+        ? '<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;background:#E1F5EE;color:#0F6E56;">높음(냉동선)</span>'
+        : isFruit
+        ? '<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;background:#E6F1FB;color:#185FA5;">중간</span>'
+        : '<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;background:#f5f5f0;color:#888780;">낮음</span>';
+      const rowBg = isReefer ? 'background:#f0faf5;' : '';
+      return `<tr style="${rowBg}border-bottom:0.5px solid #f1efe8;">
+        <td style="padding:10px 12px;font-weight:${isReefer?'500':'400'};">${d.vsslNm}</td>
+        <td style="padding:10px 12px;color:#73726c;">${d.vsslNltyNm||'—'}</td>
+        <td style="padding:10px 12px;">${d.vsslKndNm||'—'}</td>
+        <td style="padding:10px 12px;color:#73726c;">${d.frstDpmprtPrtNm||'—'}</td>
+        <td style="padding:10px 12px;">${d.etryptPurpsNm||'—'}</td>
+        <td style="padding:10px 12px;">${fruitBadge}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    console.log('선박 오류:', e);
+  }
+}
+
+
+
+
+// ===== 원산지별 수입물량 =====
+let originPieChart, originBarChart;
+
+const CHART_COLORS = [
+  '#1D9E75','#2563EB','#E24B4A','#F59E0B','#8B5CF6',
+  '#EC4899','#06B6D4','#84CC16','#F97316','#6366F1',
+  '#14B8A6','#EF4444','#A855F7','#3B82F6','#22C55E'
+];
+
+async function loadOrigins() {
+  const hs = document.getElementById('originHs').value;
+  const start = document.getElementById('originStart').value;
+  const end = document.getElementById('originEnd').value;
+
+  document.getElementById('originLoading').style.display = 'block';
+  document.getElementById('originContent').style.display = 'none';
+  document.getElementById('originMetrics').style.display = 'none';
+  document.getElementById('originTableWrap').style.display = 'none';
+
+  try {
+    const res = await fetch(`${SERVER}/api/trade/origins?start=${start}&end=${end}&hs=${hs}`);
+    const json = await res.json();
+    document.getElementById('originLoading').style.display = 'none';
+
+    if (!json.success || !json.data?.length) {
+      document.getElementById('originTableBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">데이터 없음</td></tr>';
+      document.getElementById('originTableWrap').style.display = 'block';
+      return;
+    }
+
+    const data = json.data;
+    const totalWgt = data.reduce((s, d) => s + d.impWgt, 0);
+
+    // 메트릭
+    document.getElementById('originMetrics').style.display = 'block';
+    document.getElementById('o-total').textContent = Math.round(totalWgt/1000).toLocaleString() + '톤';
+    document.getElementById('o-first').textContent = data[0].flag + ' ' + data[0].name;
+    document.getElementById('o-count').textContent = data.length + '개국';
+
+    // 파이차트
+    if (originPieChart) originPieChart.destroy();
+    originPieChart = new Chart(document.getElementById('originPieChart'), {
+      type: 'doughnut',
+      data: {
+        labels: data.map(d => d.flag + ' ' + d.name),
+        datasets: [{
+          data: data.map(d => Math.round(d.impWgt/1000)),
+          backgroundColor: CHART_COLORS.slice(0, data.length),
+          borderWidth: 1,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font:{size:11}, boxWidth:12, padding:8 } }
+        }
+      }
+    });
+
+    // 막대차트
+    if (originBarChart) originBarChart.destroy();
+    originBarChart = new Chart(document.getElementById('originBarChart'), {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d.flag + ' ' + d.name),
+        datasets: [{
+          data: data.map(d => Math.round(d.impWgt/1000)),
+          backgroundColor: CHART_COLORS.slice(0, data.length),
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font:{size:10}, color:'#888780' }, grid:{display:false} },
+          y: { ticks: { font:{size:10}, color:'#888780', callback: v=>v.toLocaleString()+'톤' }, grid:{color:'rgba(136,135,128,0.12)'} }
+        }
+      }
+    });
+
+    document.getElementById('originContent').style.display = 'grid';
+
+    // 테이블
+    document.getElementById('originTableBody').innerHTML = data.map((d, i) => {
+      const pct = (d.impWgt / totalWgt * 100).toFixed(1);
+      const barW = Math.round(d.impWgt / data[0].impWgt * 100);
+      const color = CHART_COLORS[i % CHART_COLORS.length];
+      return `<tr style="border-bottom:0.5px solid #f1efe8;">
+        <td style="padding:9px 12px;color:#73726c;font-size:12px;">${i+1}</td>
+        <td style="padding:9px 12px;font-weight:500;">${d.flag} ${d.name}</td>
+        <td style="padding:9px 12px;text-align:right;font-weight:500;">${Math.round(d.impWgt/1000).toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;color:#73726c;">$${Math.round(d.impDlr/1000).toLocaleString()}천</td>
+        <td style="padding:9px 12px;text-align:right;font-weight:500;">${pct}%</td>
+        <td style="padding:9px 12px;">
+          <div style="background:#f5f5f0;border-radius:4px;height:8px;width:100%;">
+            <div style="background:${color};height:8px;border-radius:4px;width:${barW}%;"></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    document.getElementById('originTableWrap').style.display = 'block';
+
+  } catch(e) {
+    document.getElementById('originLoading').style.display = 'none';
+    console.log('원산지 조회 오류:', e);
+  }
+}
+
+// ===== 가락시장 오늘 시세 (주식 스타일) =====
+let garakHistChart;
+
+async function loadGarak() {
+  try {
+    const res = await fetch(`${SERVER}/api/garak`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) return;
+
+    const originMap = {
+      '바나나': '🇵🇭필리핀 · 🇻🇳베트남 · 🇰🇭캄보디아 · 🇪🇨에콰도르 · 🇨🇷코스타리카 · 🇬🇹과테말라',
+      '망고': '🇹🇭태국 · 🇵🇭필리핀',
+      '애플망고': '🇵🇪페루 · 🇧🇷브라질 · 🇹🇼대만',
+      '골드파인애플': '🇵🇭필리핀',
+      '파인애플': '🇵🇭필리핀 · 🇨🇷코스타리카',
+      '오렌지': '🇺🇸미국 · 🇦🇺호주 · 🇿🇦남아공 · 🇪🇸스페인',
+      '포도': '🇺🇸미국 · 🇨🇱칠레 · 🇦🇺호주',
+      '키위': '🇳🇿뉴질랜드 · 🇨🇱칠레 · 🇬🇷그리스',
+      '블루베리': '🇺🇸미국 · 🇨🇱칠레',
+    };
+    const getOrigin = (name) => {
+      for (const [k, v] of Object.entries(originMap)) {
+        if (name.includes(k)) return v;
+      }
+      return '—';
+    };
+    const fruits = ['바나나','망고','파인애플','골드파인애플','오렌지','포도','키위','블루베리'];
+    const fruitData = json.data.filter(d => fruits.some(f => (d.PUM_NM_A||'').includes(f)));
+
+    // 품목별 그룹화 (미니 바차트용)
+    const grouped = {};
+    fruitData.forEach(d => {
+      const key = d.PUM_NM_A + d.U_NAME?.trim();
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(d);
+    });
+
+    document.getElementById('garakBody').innerHTML = fruitData.map(d => {
+      const chgB = d.A_B - 100;
+      const chgC = d.A_C - 100;
+      // 주식 스타일: 상승=빨강, 하락=파랑
+      const bColor = chgB > 0 ? '#E24B4A' : chgB < 0 ? '#2563EB' : '#888780';
+      const cColor = chgC > 0 ? '#E24B4A' : chgC < 0 ? '#2563EB' : '#888780';
+      const bArrow = chgB > 0 ? '▲' : chgB < 0 ? '▼' : '—';
+      const cArrow = chgC > 0 ? '▲' : chgC < 0 ? '▼' : '—';
+      const bBg = chgB > 0 ? 'rgba(226,75,74,0.08)' : chgB < 0 ? 'rgba(37,99,235,0.08)' : 'transparent';
+      const price = d.AV_P_A ? '₩'+d.AV_P_A.toLocaleString() : '—';
+      const prevPrice = d.PAV_P_A ? '₩'+d.PAV_P_A.toLocaleString() : '—';
+
+      // 미니 바 차트 (오늘 vs 전일 vs 전년)
+      const maxVal = Math.max(d.AV_P_A||0, d.PAV_P_A||0, d.PAV_PY_A||0) || 1;
+      const barToday = d.AV_P_A ? Math.round(d.AV_P_A/maxVal*100) : 0;
+      const barPrev = d.PAV_P_A ? Math.round(d.PAV_P_A/maxVal*100) : 0;
+      const barYear = d.PAV_PY_A ? Math.round(d.PAV_PY_A/maxVal*100) : 0;
+      const miniBar = `<div style="display:flex;flex-direction:column;gap:2px;width:110px;">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:${barToday}%;height:6px;background:#E24B4A;border-radius:2px;min-width:2px;"></div>
+          <span style="font-size:10px;color:#888;white-space:nowrap;">오늘</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:${barPrev}%;height:6px;background:#888780;border-radius:2px;min-width:2px;"></div>
+          <span style="font-size:10px;color:#888;white-space:nowrap;">전일</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:${barYear}%;height:6px;background:#d3d1c7;border-radius:2px;min-width:2px;"></div>
+          <span style="font-size:10px;color:#888;white-space:nowrap;">전년</span>
+        </div>
+      </div>`;
+
+      const gradeBg = d.G_NAME_A==='특'?'#E6F1FB':d.G_NAME_A==='상'?'#E1F5EE':'#f5f5f0';
+      const gradeColor = d.G_NAME_A==='특'?'#185FA5':d.G_NAME_A==='상'?'#0F6E56':'#73726c';
+
+      return `<tr style="border-bottom:0.5px solid #f1efe8;background:${bBg};">
+        <td style="padding:9px 12px;font-weight:500;">${d.PUM_NM_A?.replace(' 수입','')}</td>
+        <td style="padding:9px 12px;text-align:center;"><span style="padding:2px 7px;border-radius:4px;font-size:11px;background:${gradeBg};color:${gradeColor}">${d.G_NAME_A}</span></td>
+        <td style="padding:9px 12px;color:#73726c;font-size:12px;">${d.U_NAME?.trim()}</td>
+        <td style="padding:9px 12px;text-align:right;font-weight:600;color:${bColor};">${price}</td>
+        <td style="padding:9px 12px;text-align:right;color:#73726c;font-size:12px;">${prevPrice}</td>
+        <td style="padding:9px 12px;text-align:right;font-weight:500;color:${bColor};">${d.A_B ? bArrow+' '+Math.abs(chgB)+'%' : '—'}</td>
+        <td style="padding:9px 12px;text-align:right;color:${cColor};">${d.A_C ? cArrow+' '+Math.abs(chgC)+'%' : '—'}</td>
+        <td style="padding:9px 12px;font-size:11px;color:#73726c;line-height:1.6;">${getOrigin(d.PUM_NM_A||'')}</td>
+        <td style="padding:9px 12px;">${miniBar}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.log('가락시장 오류:', e); }
+}
+
+async function loadGarakHistory() {
+  const item = document.getElementById('garakItem').value;
+  const grade = document.getElementById('garakGrade').value;
+  const days = document.getElementById('garakDays').value;
+
+  document.getElementById('garakChartLoading').style.display = 'block';
+  if (garakHistChart) garakHistChart.destroy();
+
+  try {
+    const res = await fetch(`${SERVER}/api/garak/history?item=${encodeURIComponent(item)}&grade=${encodeURIComponent(grade)}&days=${days}`);
+    const json = await res.json();
+    document.getElementById('garakChartLoading').style.display = 'none';
+    if (!json.success || !json.data?.length) return;
+
+    const labels = json.data.map(d => d.date.slice(4,6)+'/'+d.date.slice(6,8));
+    const prices = json.data.map(d => d.price);
+
+    // 상승/하락 색상 처리
+    const colors = prices.map((p, i) => {
+      if (i === 0) return 'rgba(136,135,128,0.6)';
+      return p >= prices[i-1] ? 'rgba(226,75,74,0.75)' : 'rgba(37,99,235,0.75)';
+    });
+
+    garakHistChart = new Chart(document.getElementById('garakChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: `${item} ${grade}품`,
+          data: prices,
+          backgroundColor: colors,
+          borderRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font:{size:10}, color:'#888780', maxTicksLimit:15 }, grid:{display:false} },
+          y: { ticks: { font:{size:11}, color:'#888780', callback: v=>'₩'+v.toLocaleString() }, grid:{color:'rgba(136,135,128,0.12)'} }
+        }
+      }
+    });
+  } catch(e) {
+    document.getElementById('garakChartLoading').style.display = 'none';
+    console.log('가락 히스토리 오류:', e);
+  }
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('statusBar');
+  el.textContent = msg;
+  el.className = `status-bar ${type}`;
+}
+
+loadPrices();
+setTimeout(() => loadTradeChart('0803','0803'), 800);
+setInterval(loadPrices, 5*60*1000);
+</script>
+</body>
+</html>
