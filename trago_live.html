@@ -705,9 +705,15 @@ let garakHistChart;
 
 async function loadGarak() {
   try {
-    const res = await fetch(`${SERVER}/api/garak`);
+    const [res, resW] = await Promise.all([
+      fetch(`${SERVER}/api/garak`),
+      fetch(`${SERVER}/api/garak/weekly`)
+    ]);
     const json = await res.json();
+    const weeklyJson = await resW.json();
     if (!json.success || !json.data?.length) return;
+    const thisWeek = weeklyJson.thisWeek || {};
+    const lastWeek = weeklyJson.lastWeek || {};
 
     const originMap = {
       '바나나': '🇵🇭필리핀 · 🇻🇳베트남 · 🇰🇭캄보디아 · 🇪🇨에콰도르 · 🇨🇷코스타리카 · 🇬🇹과테말라',
@@ -780,6 +786,8 @@ async function loadGarak() {
         <td style="padding:9px 12px;text-align:right;color:#73726c;font-size:12px;">${prevPrice}</td>
         <td style="padding:9px 12px;text-align:right;font-weight:500;color:${bColor};">${d.A_B ? bArrow+' '+Math.abs(chgB)+'%' : '—'}</td>
         <td style="padding:9px 12px;text-align:right;color:${cColor};">${d.A_C ? cArrow+' '+Math.abs(chgC)+'%' : '—'}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#2c2c2a;">${thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A] ? '₩'+thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A].toLocaleString() : '—'}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">${lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A] ? '₩'+lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A].toLocaleString() : '—'}</td>
         <td style="padding:9px 12px;font-size:11px;color:#73726c;line-height:1.6;">${getOrigin(d.PUM_NM_A||'')}</td>
         <td style="padding:9px 12px;">${miniBar}</td>
       </tr>`;

@@ -247,6 +247,52 @@ app.get('/api/trade/origins', async (req, res) => {
   res.json({ success: true, hs, period: `${start}~${end}`, count: results.length, data: results });
 });
 
+
+// 9. 가락시장 이번주/저번주 평균
+app.get('/api/garak/weekly', async (req, res) => {
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const thisMonStart = dayOfWeek === 0 ? -6 : -(dayOfWeek - 1);
+  const lastMonStart = thisMonStart - 7;
+
+  const fetchDayData = async (offset) => {
+    const d = new Date(today); d.setDate(d.getDate() + offset);
+    if (d.getDay() === 0 || d.getDay() === 6) return [];
+    const p_ymd = d.toISOString().slice(0,10).replace(/-/g,'');
+    try {
+      const response = await axios.get('http://www.garak.co.kr/homepage/publicdata/dataJsonOpen.do', {
+        params: { id: '7435', passwd: 'dkwlxm12', dataid: 'data65', pagesize: 100, pageidx: 1, 'portal.templet': 'false', p_ymd, p_jymd: p_ymd, p_jjymd: p_ymd, p_buryu: '2', p_pos_gubun: '1', d_cd: '2' },
+        timeout: 5000
+      });
+      return (response.data?.resultData || []).filter(i => (i.PUM_NM_A||'').includes('수입'));
+    } catch(e) { return []; }
+  };
+
+  const calcWeekAvg = async (startOffset, endOffset) => {
+    const allDays = [];
+    for (let i = startOffset; i <= endOffset; i++) allDays.push(fetchDayData(i));
+    const results = await Promise.all(allDays);
+    const grouped = {};
+    results.flat().forEach(d => {
+      const key = d.PUM_NM_A + '||' + d.G_NAME_A;
+      if (!grouped[key]) grouped[key] = { prices: [] };
+      if (d.AV_P_A > 0) grouped[key].prices.push(d.AV_P_A);
+    });
+    const avg = {};
+    Object.entries(grouped).forEach(([key, v]) => {
+      if (v.prices.length > 0) avg[key] = Math.round(v.prices.reduce((a,b)=>a+b,0)/v.prices.length);
+    });
+    return avg;
+  };
+
+  try {
+    const [thisWeek, lastWeek] = await Promise.all([
+      calcWeekAvg(thisMonStart, 0),
+      calcWeekAvg(lastMonStart, lastMonStart + 6)
+    ]);
+    res.json({ success: true, thisWeek, lastWeek });
+  } catch(e) { res.json({ success: false, error: e.message }); }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
