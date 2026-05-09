@@ -261,7 +261,7 @@ app.get('/api/garak/weekly', async (req, res) => {
     const p_ymd = d.toISOString().slice(0,10).replace(/-/g,'');
     try {
       const response = await axios.get('http://www.garak.co.kr/homepage/publicdata/dataJsonOpen.do', {
-        params: { id: '7435', passwd: 'dkwlxm12', dataid: 'data65', pagesize: 100, pageidx: 1, 'portal.templet': 'false', p_ymd, p_jymd: p_ymd, p_jjymd: p_ymd, p_buryu: '2', p_pos_gubun: '1', d_cd: '2' },
+        params: { id: '7435', passwd: 'dkwlxm12!@', dataid: 'data65', pagesize: 100, pageidx: 1, 'portal.templet': 'false', p_ymd, p_jymd: p_ymd, p_jjymd: p_ymd, p_buryu: '2', p_pos_gubun: '1', d_cd: '2' },
         timeout: 5000
       });
       return (response.data?.resultData || []).filter(i => (i.PUM_NM_A||'').includes('수입'));
