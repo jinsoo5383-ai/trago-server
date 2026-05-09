@@ -92,7 +92,7 @@ app.get('/api/fruit-prices', async (req, res) => {
       params: { action: 'dailySalesList', p_date: today, p_cert_key: KAMIS_KEY, p_cert_id: KAMIS_ID, p_returntype: 'json' }
     });
     const allPrices = response.data?.price || [];
-    const fruits = ['바나나', '망고', '파인애플', '오렌지', '레몬', '포도', '체리'];
+    const fruits = ['바나나', '망고', '파인애플', '오렌지', '레몬', '포도', '체리', '키위', '블루베리', '아보카도'];
     const fruitPrices = allPrices.filter(p =>
       fruits.some(f => p.productName?.includes(f)) && p.product_cls_name === '도매'
     );
