@@ -293,16 +293,6 @@ app.get('/api/garak/weekly', async (req, res) => {
     res.json({ success: true, thisWeek, lastWeek });
   } catch(e) { res.json({ success: false, error: e.message }); }
 });
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
-  console.log(`   수입과일 실시간 가격: http://localhost:${PORT}/api/fruit-prices`);
-  console.log(`   관세청 수입물량:      http://localhost:${PORT}/api/trade`);
-  console.log(`   국가별 수입물량:      http://localhost:${PORT}/api/trade/country`);
-  console.log(`   원산지 비교:          http://localhost:${PORT}/api/trade/origins`);
-  console.log(`   선박 정보:            http://localhost:${PORT}/api/vessel`);
-  console.log(`   가락시장 가격:        http://localhost:${PORT}/api/garak`);
-});
 
 // ── 과일브로 라우트 ──
 app.get('/fruitbro', (req, res) => {
@@ -311,4 +301,9 @@ app.get('/fruitbro', (req, res) => {
 
 app.get('/broker/hwashin', (req, res) => {
   res.sendFile(__dirname + '/hwashin-profile.html');
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
 });
