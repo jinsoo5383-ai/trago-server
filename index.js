@@ -303,3 +303,12 @@ app.listen(PORT, () => {
   console.log(`   선박 정보:            http://localhost:${PORT}/api/vessel`);
   console.log(`   가락시장 가격:        http://localhost:${PORT}/api/garak`);
 });
+
+// ── 과일브로 라우트 ──
+app.get('/fruitbro', (req, res) => {
+  res.sendFile(__dirname + '/fruitbro-landing.html');
+});
+
+app.get('/broker/hwashin', (req, res) => {
+  res.sendFile(__dirname + '/hwashin-profile.html');
+});
