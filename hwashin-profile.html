@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>화신유통 임진섭 — 과일브로</title>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --orange: #FF6B2C; --orange-dark: #D94F15; --orange-light: #FFF0E8;
+    --black: #1A1A18; --gray: #888780; --light: #F7F3EE; --white: #FFFFFF;
+  }
+  body { font-family: 'Noto Sans KR', sans-serif; background: var(--light); color: var(--black); min-height: 100vh; }
+
+  nav {
+    background: white; border-bottom: 1px solid rgba(0,0,0,0.06);
+    padding: 0 5%; height: 56px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+  .nav-logo-text { font-family: 'Nanum Myeongjo', serif; font-weight: 800; font-size: 18px; color: var(--black); }
+  .nav-back { font-size: 13px; color: var(--gray); text-decoration: none; }
+  .nav-back:hover { color: var(--orange); }
+
+  .hero { background: var(--black); padding: 48px 5% 0; }
+  .hero-inner { max-width: 720px; margin: 0 auto; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,107,44,0.2); color: var(--orange);
+    font-size: 11px; font-weight: 500; padding: 5px 12px;
+    border-radius: 100px; letter-spacing: 0.5px; margin-bottom: 20px;
+  }
+  .hero-name { font-family: 'Nanum Myeongjo', serif; font-size: 36px; font-weight: 800; color: white; letter-spacing: -1px; margin-bottom: 4px; }
+  .hero-store { font-size: 16px; color: var(--gray); margin-bottom: 24px; }
+  .hero-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; }
+  .hero-tag { background: rgba(255,255,255,0.08); color: white; font-size: 13px; padding: 6px 14px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.12); }
+  .hero-tag.etc { color: var(--gray); border-color: rgba(255,255,255,0.06); }
+  .contact-strip { display: flex; gap: 12px; padding-bottom: 32px; flex-wrap: wrap; }
+  .contact-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 24px; border-radius: 100px; font-size: 14px; font-weight: 500;
+    font-family: 'Noto Sans KR', sans-serif; text-decoration: none; cursor: pointer;
+    border: none; transition: transform 0.15s, opacity 0.15s;
+  }
+  .contact-btn:hover { transform: translateY(-1px); opacity: 0.9; }
+  .btn-call { background: var(--orange); color: white; }
+  .btn-kakao { background: #FEE500; color: #3A1D1D; }
+
+  .tab-bar { background: var(--black); border-top: 1px solid rgba(255,255,255,0.06); padding: 0 5%; }
+  .tab-bar-inner { max-width: 720px; margin: 0 auto; display: flex; }
+  .tab { font-size: 13px; color: var(--gray); padding: 14px 20px; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; white-space: nowrap; }
+  .tab.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+  .content { max-width: 720px; margin: 0 auto; padding: 28px 5% 80px; }
+
+  .card { background: white; border-radius: 16px; padding: 24px; margin-bottom: 16px; border: 1px solid rgba(0,0,0,0.05); }
+  .card-title { font-size: 11px; letter-spacing: 2px; color: var(--orange); font-weight: 500; margin-bottom: 16px; }
+
+  .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .price-item { background: var(--light); border-radius: 12px; padding: 16px 14px; }
+  .price-fruit { font-size: 12px; color: var(--gray); margin-bottom: 2px; }
+  .price-origin { font-size: 10px; color: var(--gray); opacity: 0.7; margin-bottom: 8px; }
+  .price-val { font-family: 'Nanum Myeongjo', serif; font-size: 20px; font-weight: 800; color: var(--black); line-height: 1; margin-bottom: 2px; }
+  .price-unit { font-size: 10px; color: var(--gray); }
+  .price-change-up { font-size: 11px; color: var(--orange); margin-top: 4px; }
+  .price-change-down { font-size: 11px; color: #3AAFA9; margin-top: 4px; }
+  .price-updated { font-size: 11px; color: var(--gray); margin-top: 12px; text-align: right; }
+
+  .spec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .spec-item { background: var(--light); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+  .spec-ico { font-size: 20px; }
+  .spec-txt { font-size: 13px; color: var(--black); font-weight: 500; }
+
+  /* 지도 미리보기 */
+  .map-preview {
+    background: #E8F0E0;
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    position: relative;
+    height: 180px;
+  }
+  .map-svg-wrap { width: 100%; height: 100%; }
+  .map-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .map-pin {
+    display: flex; flex-direction: column; align-items: center; gap: 0;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.25));
+  }
+  .map-pin-circle {
+    width: 44px; height: 44px; background: var(--orange);
+    border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+    display: flex; align-items: center; justify-content: center;
+    border: 3px solid white;
+  }
+  .map-pin-inner { transform: rotate(45deg); font-size: 18px; }
+  .map-pin-label {
+    background: white; color: var(--black); font-size: 12px; font-weight: 500;
+    padding: 4px 10px; border-radius: 100px; margin-top: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap;
+  }
+
+  /* 지도 앱 버튼들 */
+  .map-btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+  .map-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    background: var(--light); border-radius: 12px; padding: 14px 8px;
+    text-decoration: none; border: 1px solid rgba(0,0,0,0.06);
+    transition: border-color 0.2s, transform 0.15s; cursor: pointer;
+  }
+  .map-btn:hover { border-color: var(--orange); transform: translateY(-2px); }
+  .map-btn-ico { font-size: 24px; }
+  .map-btn-name { font-size: 12px; color: var(--black); font-weight: 500; }
+  .map-btn-sub { font-size: 10px; color: var(--gray); }
+
+  .info-list { display: flex; flex-direction: column; gap: 14px; }
+  .info-row { display: flex; align-items: flex-start; gap: 14px; }
+  .info-icon { width: 36px; height: 36px; background: var(--light); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .info-label { font-size: 11px; color: var(--gray); margin-bottom: 2px; }
+  .info-val { font-size: 14px; color: var(--black); font-weight: 500; line-height: 1.6; }
+
+  /* 영업시간 뱃지 */
+  .open-badge { display: inline-flex; align-items: center; gap: 6px; background: #E8F7EE; color: #2E7D4F; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 100px; margin-top: 4px; }
+  .open-dot { width: 7px; height: 7px; background: #2E7D4F; border-radius: 50%; animation: blink 1.5s infinite; }
+  .closed-badge { display: inline-flex; align-items: center; gap: 6px; background: #F5F5F3; color: var(--gray); font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 100px; margin-top: 4px; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .inquiry-form { display: flex; flex-direction: column; gap: 12px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field-group { display: flex; flex-direction: column; gap: 5px; }
+  .field-label { font-size: 12px; color: var(--gray); }
+  input, select, textarea {
+    font-family: 'Noto Sans KR', sans-serif; font-size: 13px; padding: 10px 12px;
+    border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; background: var(--light);
+    color: var(--black); outline: none; width: 100%; transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--orange); }
+  textarea { min-height: 80px; resize: vertical; line-height: 1.6; }
+  .submit-btn { background: var(--orange); color: white; border: none; border-radius: 100px; padding: 14px; font-size: 15px; font-weight: 500; font-family: 'Noto Sans KR', sans-serif; cursor: pointer; transition: background 0.2s; width: 100%; }
+  .submit-btn:hover { background: var(--orange-dark); }
+
+  .review-empty { text-align: center; padding: 40px 0; color: var(--gray); font-size: 14px; }
+  .review-empty .ico { font-size: 32px; margin-bottom: 10px; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .profile-footer { background: var(--black); padding: 24px 5%; text-align: center; }
+  .profile-footer a { text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+  .profile-footer-brand { font-family: 'Nanum Myeongjo', serif; font-weight: 800; font-size: 14px; color: white; }
+  .profile-footer-txt { font-size: 12px; color: var(--gray); margin-left: 8px; }
+
+  /* 네비 모달 */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5); z-index: 200;
+    align-items: flex-end; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-sheet {
+    background: white; border-radius: 20px 20px 0 0;
+    padding: 28px 24px 40px; width: 100%; max-width: 480px;
+  }
+  .modal-title { font-family: 'Nanum Myeongjo', serif; font-size: 18px; font-weight: 800; margin-bottom: 6px; }
+  .modal-sub { font-size: 13px; color: var(--gray); margin-bottom: 24px; }
+  .navi-btns { display: flex; flex-direction: column; gap: 10px; }
+  .navi-btn {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 20px; border-radius: 14px;
+    text-decoration: none; border: 1px solid rgba(0,0,0,0.08);
+    transition: border-color 0.15s; cursor: pointer; background: white;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .navi-btn:hover { border-color: var(--orange); }
+  .navi-btn-ico { font-size: 28px; }
+  .navi-btn-name { font-size: 15px; font-weight: 500; color: var(--black); }
+  .navi-btn-sub { font-size: 12px; color: var(--gray); }
+  .modal-cancel { width: 100%; margin-top: 12px; padding: 14px; border: none; background: var(--light); border-radius: 14px; font-size: 14px; color: var(--gray); cursor: pointer; font-family: 'Noto Sans KR', sans-serif; }
+
+  @media (max-width: 480px) {
+    .price-grid { grid-template-columns: repeat(2, 1fr); }
+    .spec-grid { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
+    .hero-name { font-size: 28px; }
+    .map-btns { grid-template-columns: 1fr 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 네비 모달 -->
+<div class="modal-overlay" id="naviModal">
+  <div class="modal-sheet">
+    <div class="modal-title">길찾기 앱 선택</div>
+    <div class="modal-sub">화신유통으로 가는 길을 안내해드려요</div>
+    <div class="navi-btns">
+      <a href="nmap://navigation?dlat=37.5932&dlng=127.1298&dname=화신유통&appname=fruitbro" class="navi-btn">
+        <span class="navi-btn-ico">🟢</span>
+        <div>
+          <div class="navi-btn-name">네이버 지도</div>
+          <div class="navi-btn-sub">네이버 앱으로 길찾기</div>
+        </div>
+      </a>
+      <a href="tmap://route?goalname=화신유통&goalx=127.1298&goaly=37.5932" class="navi-btn">
+        <span class="navi-btn-ico">🔵</span>
+        <div>
+          <div class="navi-btn-name">티맵</div>
+          <div class="navi-btn-sub">티맵으로 내비게이션 시작</div>
+        </div>
+      </a>
+      <a href="kakaomap://route?ep=37.5932,127.1298&by=CAR" class="navi-btn">
+        <span class="navi-btn-ico">🟡</span>
+        <div>
+          <div class="navi-btn-name">카카오내비</div>
+          <div class="navi-btn-sub">카카오내비로 안내 시작</div>
+        </div>
+      </a>
+    </div>
+    <button class="modal-cancel" onclick="closeNavi()">취소</button>
+  </div>
+</div>
+
+<nav>
+  <a href="#" class="nav-logo">
+    <svg width="28" height="28" viewBox="0 0 36 36">
+      <rect width="36" height="36" rx="10" fill="#FF6B2C"/>
+      <rect x="7" y="4" width="10" height="22" rx="5" fill="white"/>
+      <rect x="19" y="12" width="10" height="22" rx="5" fill="white"/>
+      <rect x="11" y="2" width="4" height="9" rx="2" fill="#1A1A18" transform="rotate(-16 11 2)"/>
+    </svg>
+    <span class="nav-logo-text">과일브로</span>
+  </a>
+  <a href="#" class="nav-back">← 중매인 목록</a>
+</nav>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">✓ 과일브로 인증 중매인</div>
+    <div class="hero-name">임진섭 사장님</div>
+    <div class="hero-store">화신유통 · 구리농수산물도매시장</div>
+    <div class="hero-tags">
+      <span class="hero-tag">🍌 바나나</span>
+      <span class="hero-tag">🍍 파인애플</span>
+      <span class="hero-tag">🥝 키위</span>
+      <span class="hero-tag">🍒 체리</span>
+      <span class="hero-tag">🍊 오렌지</span>
+      <span class="hero-tag">🍇 포도</span>
+      <span class="hero-tag etc">+ 기타</span>
+    </div>
+    <div class="contact-strip">
+      <a href="tel:01089033676" class="contact-btn btn-call">📞 전화 문의</a>
+      <a href="https://open.kakao.com" class="contact-btn btn-kakao">💬 카카오 문의</a>
+    </div>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <div class="tab-bar-inner">
+    <div class="tab active" onclick="switchTab('price', this)">오늘 시세</div>
+    <div class="tab" onclick="switchTab('info', this)">점포 정보</div>
+    <div class="tab" onclick="switchTab('inquiry', this)">구매 문의</div>
+    <div class="tab" onclick="switchTab('review', this)">리뷰</div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- 오늘 시세 -->
+  <div id="tab-price" class="tab-panel active">
+    <div class="card">
+      <div class="card-title">TODAY · 오늘 시세</div>
+      <div class="price-grid">
+        <div class="price-item">
+          <div class="price-fruit">바나나</div>
+          <div class="price-origin">필리핀산</div>
+          <div class="price-val">4,200</div>
+          <div class="price-unit">원 / kg</div>
+          <div class="price-change-up">▲ 200</div>
+        </div>
+        <div class="price-item">
+          <div class="price-fruit">파인애플</div>
+          <div class="price-origin">필리핀산</div>
+          <div class="price-val">6,800</div>
+          <div class="price-unit">원 / 개</div>
+          <div class="price-change-down">▼ 200</div>
+        </div>
+        <div class="price-item">
+          <div class="price-fruit">키위</div>
+          <div class="price-origin">뉴질랜드산</div>
+          <div class="price-val">1,200</div>
+          <div class="price-unit">원 / 개</div>
+          <div class="price-change-up">▲ 50</div>
+        </div>
+        <div class="price-item">
+          <div class="price-fruit">체리</div>
+          <div class="price-origin">미국산</div>
+          <div class="price-val">38,000</div>
+          <div class="price-unit">원 / kg</div>
+          <div class="price-change-down">▼ 1,000</div>
+        </div>
+        <div class="price-item">
+          <div class="price-fruit">오렌지</div>
+          <div class="price-origin">미국산</div>
+          <div class="price-val">2,800</div>
+          <div class="price-unit">원 / 개</div>
+          <div class="price-change-up">▲ 100</div>
+        </div>
+        <div class="price-item">
+          <div class="price-fruit">포도</div>
+          <div class="price-origin">칠레산</div>
+          <div class="price-val">12,000</div>
+          <div class="price-unit">원 / kg</div>
+          <div class="price-change-down">▼ 500</div>
+        </div>
+      </div>
+      <div class="price-updated">마지막 업데이트: 오늘 오전 6:30</div>
+    </div>
+    <div class="card">
+      <div class="card-title">SPECIALTY · 전문 취급</div>
+      <div class="spec-grid">
+        <div class="spec-item"><span class="spec-ico">🍌</span><span class="spec-txt">수입 바나나 전문</span></div>
+        <div class="spec-item"><span class="spec-ico">📦</span><span class="spec-txt">소량 구매 가능</span></div>
+        <div class="spec-item"><span class="spec-ico">🚗</span><span class="spec-txt">직접 방문 거래</span></div>
+        <div class="spec-item"><span class="spec-ico">⭐</span><span class="spec-txt">경력 15년 이상</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 점포 정보 -->
+  <div id="tab-info" class="tab-panel">
+    <div class="card">
+      <div class="card-title">LOCATION · 점포 위치</div>
+
+      <!-- 지도 미리보기 -->
+      <div class="map-preview">
+        <svg class="map-svg-wrap" viewBox="0 0 600 180" xmlns="http://www.w3.org/2000/svg">
+          <!-- 배경 -->
+          <rect width="600" height="180" fill="#E8EFE0"/>
+          <!-- 공원/녹지 -->
+          <rect x="0" y="0" width="180" height="180" fill="#D4E6C3"/>
+          <rect x="420" y="100" width="180" height="80" fill="#D4E6C3"/>
+          <!-- 도로들 -->
+          <rect x="170" y="0" width="22" height="180" fill="#F0EDE8"/>
+          <rect x="0" y="78" width="600" height="24" fill="#F0EDE8"/>
+          <rect x="310" y="0" width="18" height="180" fill="#F0EDE8"/>
+          <rect x="460" y="0" width="16" height="180" fill="#F0EDE8"/>
+          <!-- 도로 중앙선 -->
+          <line x1="181" y1="0" x2="181" y2="180" stroke="#E0D8CC" stroke-width="1" stroke-dasharray="8,6"/>
+          <line x1="0" y1="90" x2="600" y2="90" stroke="#E0D8CC" stroke-width="1" stroke-dasharray="8,6"/>
+          <!-- 건물들 -->
+          <rect x="200" y="10" width="100" height="58" rx="4" fill="#D8D0C4"/>
+          <rect x="210" y="18" width="80" height="42" rx="3" fill="#C8BFB2"/>
+          <rect x="340" y="10" width="110" height="58" rx="4" fill="#D8D0C4"/>
+          <rect x="200" y="112" width="100" height="58" rx="4" fill="#D8D0C4"/>
+          <rect x="340" y="112" width="110" height="58" rx="4" fill="#D8D0C4"/>
+          <!-- 도매시장 건물 (강조) -->
+          <rect x="60" y="90" width="100" height="80" rx="4" fill="#C8D4B8"/>
+          <rect x="68" y="98" width="84" height="64" rx="3" fill="#B8C8A8"/>
+          <text x="110" y="134" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#4A6030" font-weight="bold">구리도매시장</text>
+          <!-- 도로명 -->
+          <text x="181" y="74" text-anchor="middle" font-family="sans-serif" font-size="8" fill="#888" transform="rotate(-90 181 74)">도매시장로</text>
+          <text x="300" y="86" text-anchor="middle" font-family="sans-serif" font-size="8" fill="#888">수택로</text>
+        </svg>
+        <!-- 핀 오버레이 -->
+        <div class="map-overlay">
+          <div class="map-pin">
+            <div class="map-pin-circle">
+              <span class="map-pin-inner">🍊</span>
+            </div>
+            <div class="map-pin-label">화신유통 27호</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 지도 앱 버튼 3종 -->
+      <div class="map-btns">
+        <a href="nmap://map?lat=37.5932&lng=127.1298&zoom=17&appname=fruitbro" class="map-btn">
+          <span class="map-btn-ico">🗺️</span>
+          <span class="map-btn-name">네이버지도</span>
+          <span class="map-btn-sub">위치 보기</span>
+        </a>
+        <div class="map-btn" onclick="openNavi()">
+          <span class="map-btn-ico">🧭</span>
+          <span class="map-btn-name">티맵</span>
+          <span class="map-btn-sub">내비 시작</span>
+        </div>
+        <div class="map-btn" onclick="openNavi()">
+          <span class="map-btn-ico">🚗</span>
+          <span class="map-btn-name">카카오내비</span>
+          <span class="map-btn-sub">내비 시작</span>
+        </div>
+      </div>
+
+      <div class="info-list">
+        <div class="info-row">
+          <div class="info-icon">📍</div>
+          <div>
+            <div class="info-label">주소</div>
+            <div class="info-val">경기 구리시 도매시장로 1<br>농협구리공판장 27호</div>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-icon">📞</div>
+          <div>
+            <div class="info-label">연락처</div>
+            <div class="info-val">010-8903-3676</div>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-icon">🕐</div>
+          <div>
+            <div class="info-label">영업시간</div>
+            <div class="info-val">새벽 2:00 — 오전 11:00<br>월요일 ~ 토요일 (일요일 휴무)</div>
+            <div id="openStatus"></div>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-icon">🏪</div>
+          <div>
+            <div class="info-label">점포명</div>
+            <div class="info-val">화신유통</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 구매 문의 -->
+  <div id="tab-inquiry" class="tab-panel">
+    <div class="card">
+      <div class="card-title">INQUIRY · 구매 문의</div>
+      <div class="inquiry-form">
+        <div class="form-row">
+          <div class="field-group">
+            <label class="field-label">성함</label>
+            <input type="text" placeholder="홍길동">
+          </div>
+          <div class="field-group">
+            <label class="field-label">연락처</label>
+            <input type="tel" placeholder="010-0000-0000">
+          </div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">구매 희망 품목</label>
+          <select>
+            <option value="">선택해주세요</option>
+            <option>바나나</option>
+            <option>파인애플</option>
+            <option>키위</option>
+            <option>체리</option>
+            <option>오렌지</option>
+            <option>포도</option>
+            <option>기타</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">구매 방식</label>
+          <select>
+            <option value="">선택해주세요</option>
+            <option>직접 방문 구매</option>
+            <option>온라인 주문 후 방문</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">문의 내용</label>
+          <textarea placeholder="구매 수량, 원하는 규격, 방문 예정일 등을 적어주세요"></textarea>
+        </div>
+        <button class="submit-btn" onclick="submitInquiry()">문의 보내기 🍊</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 리뷰 -->
+  <div id="tab-review" class="tab-panel">
+    <div class="card">
+      <div class="card-title">REVIEW · 거래 후기</div>
+      <div class="review-empty">
+        <div class="ico">🍊</div>
+        <div>아직 등록된 후기가 없어요.<br>첫 거래 후기를 남겨주세요!</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="profile-footer">
+  <a href="#">
+    <svg width="20" height="20" viewBox="0 0 36 36" style="margin-right:4px">
+      <rect width="36" height="36" rx="10" fill="#FF6B2C"/>
+      <rect x="7" y="4" width="10" height="22" rx="5" fill="white"/>
+      <rect x="19" y="12" width="10" height="22" rx="5" fill="white"/>
+    </svg>
+    <span class="profile-footer-brand">과일브로</span>
+    <span class="profile-footer-txt">— 과일, 이제 브로한테 물어봐</span>
+  </a>
+</div>
+
+<script>
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+function submitInquiry() {
+  alert('문의가 접수되었습니다!\n임진섭 사장님께 연락드리겠습니다 🍊');
+}
+
+function openNavi() {
+  document.getElementById('naviModal').classList.add('open');
+}
+
+function closeNavi() {
+  document.getElementById('naviModal').classList.remove('open');
+}
+
+// 영업 상태 표시
+function checkOpenStatus() {
+  const now = new Date();
+  const day = now.getDay(); // 0=일, 6=토
+  const hour = now.getHours();
+  const min = now.getMinutes();
+  const totalMin = hour * 60 + min;
+  const openMin = 2 * 60;   // 새벽 2:00
+  const closeMin = 11 * 60; // 오전 11:00
+
+  const el = document.getElementById('openStatus');
+  if (day === 0) {
+    el.innerHTML = '<span class="closed-badge">🔴 일요일 휴무</span>';
+  } else if (totalMin >= openMin && totalMin < closeMin) {
+    el.innerHTML = '<span class="open-badge"><span class="open-dot"></span>지금 영업 중</span>';
+  } else if (totalMin >= closeMin) {
+    el.innerHTML = '<span class="closed-badge">⚫ 오늘 영업 종료</span>';
+  } else {
+    // 자정~새벽 2시
+    el.innerHTML = '<span class="closed-badge">⚫ 영업 준비 중</span>';
+  }
+}
+
+checkOpenStatus();
+</script>
+</body>
+</html>
