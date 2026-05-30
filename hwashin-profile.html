@@ -457,48 +457,28 @@
 </div>
 
 <script>
-const HWASHIN_ITEMS = [
-  { keyword: '바나나', label: '바나나' },
-  { keyword: '파인애플', label: '파인애플' },
-  { keyword: '키위', label: '키위' },
-  { keyword: '체리', label: '체리' },
-  { keyword: '오렌지', label: '오렌지' },
-  { keyword: '포도', label: '포도' },
-];
 async function loadPrices() {
   const grid = document.getElementById('price-grid');
   const updated = document.getElementById('price-updated');
   try {
-    const res = await fetch('/api/guri?midCd=12');
+    const res = await fetch('/api/guri/all');
     const json = await res.json();
     if (!json.success || !json.data || !json.data.length) {
       grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:#888;font-size:13px;">오늘 시세 데이터가 없습니다</div>';
       return;
     }
-    const results = [];
-    for (const item of HWASHIN_ITEMS) {
-      const found = json.data.find(d => (d.PUM_NM_A||'').includes(item.keyword) && d.G_NAME_A === '상')
-                 || json.data.find(d => (d.PUM_NM_A||'').includes(item.keyword));
-      if (found) results.push(Object.assign({}, item, { data: found }));
-    }
-    grid.innerHTML = results.map(function(r) {
-      const d = r.data;
-      const cur = d.AV_P_A || 0;
-      const prev = d.PAV_P_A || 0;
-      const diff = cur - prev;
-      const diffStr = diff > 0
-        ? '<div class="price-change-up">▲ ' + diff.toLocaleString() + '</div>'
-        : diff < 0
-        ? '<div class="price-change-down">▼ ' + Math.abs(diff).toLocaleString() + '</div>'
+    grid.innerHTML = json.data.map(function(d) {
+      const diffStr = d.min < d.max
+        ? '<div class="price-change-up">최저 ' + d.min.toLocaleString() + '원</div>'
         : '<div style="font-size:11px;color:#888;margin-top:4px;">— 변동없음</div>';
-      return '<div class="price-item"><div class="price-fruit">' + r.label + '</div>'
-           + '<div class="price-origin">' + (d.G_NAME_A||'') + '등급</div>'
-           + '<div class="price-val">' + cur.toLocaleString() + '</div>'
-           + '<div class="price-unit">원 / ' + (d.U_NAME||'').trim() + '</div>'
+      return '<div class="price-item">'
+           + '<div class="price-fruit">' + d.name + '</div>'
+           + '<div class="price-origin">구리시장 경매</div>'
+           + '<div class="price-val">' + d.avg.toLocaleString() + '</div>'
+           + '<div class="price-unit">원 / ' + d.unit + '</div>'
            + diffStr + '</div>';
     }).join('');
-    const dt = json.date || '';
-    updated.textContent = '가락시장 경락가 기준 · ' + dt.slice(0,4) + '.' + dt.slice(4,6) + '.' + dt.slice(6,8);
+    updated.textContent = '구리시장 경락가 기준 · ' + json.date;
   } catch(e) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:#888;font-size:13px;">시세를 불러올 수 없습니다</div>';
   }
