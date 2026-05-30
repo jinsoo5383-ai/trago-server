@@ -354,3 +354,52 @@ app.get('/api/guri', async (req, res) => {
     res.json({ success: false, error: e.message });
   }
 });
+
+// ── 구리시장 전품목 경락가 ──
+app.get('/api/guri/all', async (req, res) => {
+  const kst = new Date(new Date().getTime() + 9*60*60*1000);
+  const today = req.query.date || kst.toISOString().slice(0,10);
+  const items = [
+    { midCd: '12', name: '바나나' },
+    { midCd: '13', name: '파인애플' },
+    { midCd: '11', name: '키위' },
+    { midCd: '03', name: '포도' },
+    { midCd: '17', name: '레몬' },
+  ];
+  const cheerio = require('cheerio');
+  const results = [];
+  for (const item of items) {
+    try {
+      const response = await axios.get('https://at.agromarket.kr/domeinfo/sanRealtime.do', {
+        params: {
+          pageNo: 1, saledateBefore: today, saledate: today,
+          whsalCd: '311201', largeCd: '06', midCd: item.midCd, pageSize: 100,
+          largeCdBefore: '06', midCdBefore: item.midCd,
+          cmpCd: '', mmCd: '', smallCd: '', sanCd: '', smallCdSearch: '', dCostSort: ''
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'ko-KR,ko;q=0.9',
+          'Referer': 'https://at.agromarket.kr'
+        },
+        timeout: 10000
+      });
+      const $ = cheerio.load(response.data);
+      const rows = [];
+      $('table tbody tr').each((i, el) => {
+        const cells = $(el).find('td').map((j, td) => $(td).text().trim()).get();
+        if (cells.length >= 12) rows.push({ unit: cells[9], price: cells[11] });
+      });
+      const prices = rows.map(r => parseInt(r.price.replace(/,/g,''))).filter(p => p > 0);
+      if (prices.length) {
+        const avg = Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const unit = rows[0]?.unit || '';
+        results.push({ name: item.name, avg, min, max, unit, count: rows.length });
+      }
+    } catch(e) { /* 품목 스킵 */ }
+  }
+  res.json({ success: true, date: today, data: results });
+});
