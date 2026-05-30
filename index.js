@@ -307,3 +307,50 @@ const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
 });
+
+// ── 구리시장 경락가 스크래핑 ──
+app.get('/api/guri', async (req, res) => {
+  const { date, midCd = '12' } = req.query;
+  const kst = new Date(new Date().getTime() + 9*60*60*1000);
+  const today = date || kst.toISOString().slice(0,10);
+  try {
+    const cheerio = require('cheerio');
+    const url = `https://at.agromarket.kr/domeinfo/sanRealtime.do`;
+    const response = await axios.get(url, {
+      params: {
+        pageNo: 1, saledateBefore: today, saledate: today,
+        whsalCd: '311201', largeCd: '06', midCd, pageSize: 100,
+        largeCdBefore: '06', midCdBefore: midCd,
+        cmpCd: '', mmCd: '', smallCd: '', sanCd: '', smallCdSearch: '', dCostSort: ''
+      },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Referer': 'https://at.agromarket.kr'
+      },
+      timeout: 10000
+    });
+    const $ = cheerio.load(response.data);
+    const rows = [];
+    $('table tbody tr').each((i, el) => {
+      const cells = $(el).find('td').map((j, td) => $(td).text().trim()).get();
+      if (cells.length >= 12) {
+        rows.push({
+          date: cells[0], time: cells[1], market: cells[2],
+          corp: cells[3], type: cells[4], category: cells[5],
+          item: cells[6], variety: cells[7], origin: cells[8],
+          unit: cells[9], qty: cells[10], price: cells[11]
+        });
+      }
+    });
+    // 평균가 계산
+    const prices = rows.map(r => parseInt(r.price.replace(/,/g, ''))).filter(p => p > 0);
+    const avg = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : 0;
+    const min = prices.length ? Math.min(...prices) : 0;
+    const max = prices.length ? Math.max(...prices) : 0;
+    res.json({ success: true, date: today, count: rows.length, avg, min, max, data: rows });
+  } catch(e) {
+    res.json({ success: false, error: e.message });
+  }
+});
