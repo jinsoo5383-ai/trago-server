@@ -459,7 +459,7 @@
 <script>
 const HWASHIN_ITEMS = [
   { keyword: '바나나', label: '바나나' },
-  { keyword: '골드파인애플', label: '파인애플' },
+  { keyword: '파인애플', label: '파인애플' },
   { keyword: '키위', label: '키위' },
   { keyword: '체리', label: '체리' },
   { keyword: '오렌지', label: '오렌지' },
@@ -469,7 +469,7 @@ async function loadPrices() {
   const grid = document.getElementById('price-grid');
   const updated = document.getElementById('price-updated');
   try {
-    const res = await fetch('/api/garak');
+    const res = await fetch('/api/guri?midCd=12');
     const json = await res.json();
     if (!json.success || !json.data || !json.data.length) {
       grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:#888;font-size:13px;">오늘 시세 데이터가 없습니다</div>';
