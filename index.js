@@ -172,7 +172,7 @@ app.get('/api/garak/history', async (req, res) => {
         timeout: 5000
       });
       const items = response.data?.resultData || [];
-      const found = items.find(x => (x.PUM_NM_A||'').includes(item) && (x.PUM_NM_A||'').includes('수입') && x.G_NAME_A === grade);
+      const found = items.find(x => (x.PUM_NM_A||'').includes(item) && (x.PUM_NM_A||'').includes('수입') && x.G_NAME_A === grade && (x.U_NAME||'').includes('13'));
       if (found && found.AV_P_A > 0) {
         results.push({ date: p_ymd, price: found.AV_P_A, unit: found.U_NAME?.trim() });
       }
