@@ -420,6 +420,16 @@ const NATIONWIDE_MARKETS = {
   '370401': '안동', '380401': '진주', '380303': '창원내서', '380101': '창원팔용',
   '360301': '순천'
 };
+// 원산지(plor_nm)로 국내산 여부 판별 - Trago는 수입과일 전문이라 국산은 기본 제외
+const KOREAN_REGIONS = ['서울','부산','대구','인천','광주','대전','울산','세종','경기','강원','충북','충남','전북','전남','경북','경남','제주'];
+function isDomesticOrigin(plorNm) {
+  const s = (plorNm || '').trim();
+  if (!s) return false;
+  if (KOREAN_REGIONS.some(r => s.startsWith(r))) return true;
+  if (/[시군구읍면동리]/.test(s)) return true;
+  return false;
+}
+
 // ── 특정 시장 전품목 시세 (인천남촌 등 개별 시장 상세 조회용) ──
 app.get('/api/market', async (req, res) => {
   const kst = new Date(new Date().getTime() + 9*60*60*1000);
@@ -440,7 +450,7 @@ app.get('/api/market', async (req, res) => {
           }
         });
         const items = response.data?.response?.body?.items?.item || [];
-        const arr = Array.isArray(items) ? items : [items];
+        const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
         const rows = arr.map(d => ({ price: parseFloat(d.scsbd_prc), qty: parseFloat(d.qty) || 1 })).filter(r => r.price > 0);
         if (rows.length) {
           const totalQty = rows.reduce((a,r)=>a+r.qty, 0);
@@ -478,7 +488,7 @@ app.get('/api/trades', async (req, res) => {
     if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
     const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
     const items = response.data?.response?.body?.items?.item || [];
-    const arr = Array.isArray(items) ? items : [items];
+    const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
     const grouped = {};
     arr.forEach(d => {
       const price = parseFloat(d.scsbd_prc);
@@ -533,7 +543,7 @@ app.get('/api/trend', async (req, res) => {
         }
       });
       const items = response.data?.response?.body?.items?.item || [];
-      const arr = Array.isArray(items) ? items : [items];
+      const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
       const rows = arr.map(x => {
         const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1, qty = parseFloat(x.qty) || 1;
         return { pricePerKg: price/unitQty, weight: unitQty*qty };
@@ -571,7 +581,7 @@ app.get('/api/nationwide', async (req, res) => {
       }
     });
     const items = response.data?.response?.body?.items?.item || [];
-    const arr = Array.isArray(items) ? items : [items];
+    const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
     const vrtyOptions = [...new Set(arr.map(d => d.corp_gds_vrty_nm).filter(Boolean))];
     const vrtyFilter = req.query.vrty || '';
     const filtered = vrtyFilter ? arr.filter(d => d.corp_gds_vrty_nm === vrtyFilter) : arr;

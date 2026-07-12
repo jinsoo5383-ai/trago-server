@@ -213,9 +213,18 @@ main { flex:1; padding:12px 12px 84px; }
 
     <!-- 차트 -->
     <section class="tabpane" id="pane-chart">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <span style="font-size:12px;color:var(--sub);flex:0 0 auto;">표시 단위</span>
+        <select id="unitMode" onchange="onUnitModeChange()" class="selectbox" style="width:auto;flex:0 0 auto;height:34px;margin-bottom:0;padding:0 10px;">
+          <option value="kg">kg당</option>
+          <option value="box">상자(box)당</option>
+        </select>
+        <input id="boxKgInput" type="number" min="0.5" step="0.5" value="13" oninput="loadCharts()" style="display:none;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
+        <span id="boxKgLabel" style="display:none;font-size:12px;color:var(--sub);">kg 상자</span>
+      </div>
       <div class="ccard">
         <h3 id="chartATitle">시장별 평균가</h3>
-        <div class="sub">kg당 단가 기준 · 저렴한 순</div>
+        <div class="sub" id="chartASub">kg당 단가 기준 · 저렴한 순</div>
         <div style="max-height:340px;overflow-y:auto;">
           <div class="chartwrap" id="chartAWrap"><canvas id="chartA"></canvas></div>
         </div>
@@ -311,6 +320,8 @@ main { flex:1; padding:12px 12px 84px; }
 <script>
 const SERVER = '';
 const ITEMS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도'];
+// 품목별로 시장에서 흔히 찾는 상자 단위(kg) — "kg당"이 아니라 "상자당"으로 보고 싶을 때 기본값
+const BOX_KG = { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, '레몬':10, '포도':8, '체리':5, '키위':6, '블루베리':10, '아보카도':5 };
 const state = { date: new Date(), item: '바나나', tab: 'trades' };
 let chartA = null, chartB = null;
 
@@ -334,7 +345,12 @@ function renderChips() {
     `<button class="chip${i===state.item?' on':''}" onclick="pickItem('${i}')">${i}</button>`
   ).join('');
 }
-function pickItem(i) { state.item = i; renderChips(); refresh(); }
+function pickItem(i) {
+  state.item = i; renderChips();
+  const boxInput = document.getElementById('boxKgInput');
+  if (boxInput) boxInput.value = BOX_KG[i] || 13;
+  refresh();
+}
 
 // ── 탭 ──
 function goTab(t) {
@@ -395,12 +411,27 @@ function renderTrades() {
 }
 
 // ── 차트 ──
+function onUnitModeChange() {
+  const isBox = document.getElementById('unitMode').value === 'box';
+  document.getElementById('boxKgInput').style.display = isBox ? 'inline-block' : 'none';
+  document.getElementById('boxKgLabel').style.display = isBox ? 'inline' : 'none';
+  loadCharts();
+}
+function getUnitMultiplier() {
+  const isBox = document.getElementById('unitMode').value === 'box';
+  if (!isBox) return { mult: 1, suffix: '/kg', label: 'kg당' };
+  const kg = parseFloat(document.getElementById('boxKgInput').value) || BOX_KG[state.item] || 13;
+  return { mult: kg, suffix: `/${kg}kg상자`, label: `${kg}kg 상자당` };
+}
+
 async function loadCharts() {
   const mktCd = document.getElementById('chartMarket').value;
   const mktNm = document.getElementById('chartMarket').selectedOptions[0].textContent;
+  const unit = getUnitMultiplier();
   document.getElementById('chartATitle').textContent = `${state.item} 시장별 평균가`;
+  document.getElementById('chartASub').textContent = `${unit.label} 기준 · 저렴한 순`;
   document.getElementById('chartBTitle').textContent = `${mktNm} ${state.item} 가격 추이`;
-  document.getElementById('chartBSub').textContent = `물량가중평균 · kg당 단가 · 최근 2주`;
+  document.getElementById('chartBSub').textContent = `물량가중평균 · ${unit.label} · 최근 2주`;
   try {
     const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
     const json = await res.json();
@@ -412,13 +443,13 @@ async function loadCharts() {
         type: 'bar',
         data: {
           labels: top.map(d => d.market),
-          datasets: [{ data: top.map(d => d.avgPricePerKg),
+          datasets: [{ data: top.map(d => Math.round(d.avgPricePerKg * unit.mult)),
             backgroundColor: top.map((_,i) => i===0 ? '#157A5B' : '#C9DED4'),
             borderRadius: 6, barThickness: 14 }]
         },
         options: {
           indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => ` ₩${c.raw.toLocaleString()}/kg` } } },
+          plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => ` ₩${c.raw.toLocaleString()}${unit.suffix}` } } },
           scales: {
             x: { grid: { color:'#F0EEE6' }, ticks: { font:{size:10}, callback: v => '₩'+v.toLocaleString() } },
             y: { grid: { display:false }, ticks: { font:{size:11, weight:600} } }
@@ -436,13 +467,13 @@ async function loadCharts() {
         type: 'line',
         data: {
           labels: json.data.map(d => d.date.slice(5,7)+'/'+d.date.slice(8,10)),
-          datasets: [{ data: json.data.map(d => d.price),
+          datasets: [{ data: json.data.map(d => Math.round(d.price * unit.mult)),
             borderColor:'#157A5B', backgroundColor:'rgba(21,122,91,0.08)',
             fill:true, tension:0.3, pointRadius:3, pointBackgroundColor:'#157A5B', borderWidth:2 }]
         },
         options: {
           responsive:true, maintainAspectRatio:false,
-          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c => ` ₩${c.raw.toLocaleString()}` } } },
+          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c => ` ₩${c.raw.toLocaleString()}${unit.suffix}` } } },
           scales: {
             x: { grid:{display:false}, ticks:{font:{size:10}} },
             y: { grid:{color:'#F0EEE6'}, ticks:{font:{size:10}, callback: v => '₩'+v.toLocaleString()} }
