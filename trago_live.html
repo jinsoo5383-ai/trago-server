@@ -201,6 +201,45 @@ button:hover { opacity: 0.85; }
     </div>
   </div>
 
+  <!-- 전국 도매시장 시세 비교 -->
+  <div class="chart-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;">전국 도매시장 시세 비교 <span style="font-size:12px;background:#E1F5EE;color:#0F6E56;padding:2px 8px;border-radius:20px;margin-left:6px;">직접 연동</span></div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">한국농수산식품유통공사 · 전국 23개 공영도매시장 · kg당 단가 기준 · 저렴한 순 정렬</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <button id="nw-바나나" class="btn-sm" onclick="loadNationwide('바나나','nw-바나나')">바나나</button>
+      <button id="nw-망고" class="btn-sm btn-gray" onclick="loadNationwide('망고','nw-망고')">망고</button>
+      <button id="nw-파인애플" class="btn-sm btn-gray" onclick="loadNationwide('파인애플','nw-파인애플')">파인애플</button>
+      <button id="nw-오렌지" class="btn-sm btn-gray" onclick="loadNationwide('오렌지','nw-오렌지')">오렌지</button>
+      <button id="nw-레몬" class="btn-sm btn-gray" onclick="loadNationwide('레몬','nw-레몬')">레몬</button>
+      <button id="nw-포도" class="btn-sm btn-gray" onclick="loadNationwide('포도','nw-포도')">포도</button>
+      <button id="nw-체리" class="btn-sm btn-gray" onclick="loadNationwide('체리','nw-체리')">체리</button>
+      <button id="nw-키위" class="btn-sm btn-gray" onclick="loadNationwide('키위','nw-키위')">키위</button>
+      <button id="nw-블루베리" class="btn-sm btn-gray" onclick="loadNationwide('블루베리','nw-블루베리')">블루베리</button>
+      <button id="nw-아보카도" class="btn-sm btn-gray" onclick="loadNationwide('아보카도','nw-아보카도')">아보카도</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">순위</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">시장</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">평균(kg)</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">최저</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">최고</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">거래건수</th>
+          </tr>
+        </thead>
+        <tbody id="nationwideBody">
+          <tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">위에서 품목을 선택하세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 원산지별 수입물량 -->
   <div class="chart-card" style="margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
@@ -704,6 +743,33 @@ async function loadOrigins() {
 
 // ===== 가락시장 오늘 시세 (주식 스타일) =====
 let garakHistChart;
+
+async function loadNationwide(item, btnId) {
+  document.querySelectorAll('[id^="nw-"]').forEach(b => b.className = 'btn-sm btn-gray');
+  document.getElementById(btnId).className = 'btn-sm';
+  const tbody = document.getElementById('nationwideBody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">불러오는 중...</td></tr>';
+  try {
+    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(item)}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">${json.error || '오늘 거래 데이터 없음'}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = json.data.map((d, i) => `
+      <tr style="border-bottom:0.5px solid #f1efe8;">
+        <td style="padding:9px 12px;font-size:12px;color:#73726c;">${i+1}</td>
+        <td style="padding:9px 12px;font-size:13px;font-weight:500;">${d.market}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:500;color:${i===0?'#1D9E75':'#2c2c2a'};">₩${d.avgPricePerKg.toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">₩${d.minPricePerKg.toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">₩${d.maxPricePerKg.toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#888780;">${d.count}건</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">불러오기 실패</td></tr>';
+  }
+}
 
 async function loadGarak() {
   try {
