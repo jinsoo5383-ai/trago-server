@@ -404,3 +404,61 @@ app.get('/api/guri/all', async (req, res) => {
   }
   res.json({ success: true, date: today, data: results });
 });
+
+// ── 전국 공영도매시장 실시간 경매정보 (data.go.kr B552845/katRealTime2) ──
+// 가락시장 외 전국 주요 도매시장 시세를 한번에 비교하기 위한 엔드포인트
+const NATIONWIDE_FRUIT_CODES = {
+  '바나나': '12', '망고': '36', '파인애플': '13', '오렌지': '18', '레몬': '17',
+  '포도': '03', '체리': '57', '키위': '11', '블루베리': '59', '아보카도': '34'
+};
+const NATIONWIDE_MARKETS = {
+  '110001': '서울가락', '110008': '서울강서', '230001': '인천남촌',
+  '210001': '부산엄궁', '210009': '부산반여', '220001': '대구북부',
+  '240001': '광주각화', '240004': '광주서부', '250001': '대전오정', '250003': '대전노은',
+  '380201': '울산', '310101': '수원', '310401': '안양', '340101': '천안',
+  '330101': '청주', '320301': '강릉', '370101': '포항', '371501': '구미',
+  '370401': '안동', '380401': '진주', '380303': '창원내서', '380101': '창원팔용',
+  '360301': '순천'
+};
+app.get('/api/nationwide', async (req, res) => {
+  const kst = new Date(new Date().getTime() + 9*60*60*1000);
+  const today = req.query.date || kst.toISOString().slice(0,10);
+  const item = req.query.item || '바나나';
+  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
+  if (!mclsfCd) {
+    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(NATIONWIDE_FRUIT_CODES).join(', ')}` });
+  }
+  try {
+    const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
+      params: {
+        serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
+        'cond[trd_clcln_ymd::EQ]': today,
+        'cond[gds_lclsf_cd::EQ]': '06',
+        'cond[gds_mclsf_cd::EQ]': mclsfCd
+      }
+    });
+    const items = response.data?.response?.body?.items?.item || [];
+    const arr = Array.isArray(items) ? items : [items];
+    // 시장별로 그룹핑, kg당 단가로 정규화 (박스가격 ÷ 박스중량)
+    const grouped = {};
+    arr.forEach(d => {
+      const marketNm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
+      const price = parseFloat(d.scsbd_prc);
+      const unitQty = parseFloat(d.unit_qty) || 1;
+      if (!price || !unitQty) return;
+      const pricePerKg = price / unitQty;
+      if (!grouped[marketNm]) grouped[marketNm] = { market: marketNm, prices: [] };
+      grouped[marketNm].prices.push(pricePerKg);
+    });
+    const result = Object.values(grouped).map(g => ({
+      market: g.market,
+      avgPricePerKg: Math.round(g.prices.reduce((a,b)=>a+b,0)/g.prices.length),
+      minPricePerKg: Math.round(Math.min(...g.prices)),
+      maxPricePerKg: Math.round(Math.max(...g.prices)),
+      count: g.prices.length
+    })).sort((a,b) => a.avgPricePerKg - b.avgPricePerKg);
+    res.json({ success: true, item, date: today, totalCount: response.data?.response?.body?.totalCount || 0, data: result });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
