@@ -240,6 +240,49 @@ button:hover { opacity: 0.85; }
     </div>
   </div>
 
+  <!-- 개별 시장 상세 시세 -->
+  <div class="chart-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:15px;font-weight:500;">개별 시장 상세 시세 <span style="font-size:12px;background:#E1F5EE;color:#0F6E56;padding:2px 8px;border-radius:20px;margin-left:6px;">직접 연동</span></div>
+        <div style="font-size:12px;color:#888780;margin-top:2px;">시장 하나를 골라 수입과일 전품목 시세를 한번에 확인</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="marketSelect" style="height:36px;border:0.5px solid #d3d1c7;border-radius:8px;padding:0 12px;font-size:13px;background:white;outline:none;">
+          <option value="230001">인천남촌</option>
+          <option value="311201">구리</option>
+          <option value="110001">서울가락</option>
+          <option value="110008">서울강서</option>
+          <option value="210001">부산엄궁</option>
+          <option value="210009">부산반여</option>
+          <option value="220001">대구북부</option>
+          <option value="240001">광주각화</option>
+          <option value="240004">광주서부</option>
+          <option value="250001">대전오정</option>
+          <option value="380201">울산</option>
+        </select>
+        <button onclick="loadMarketDetail()" style="height:36px;padding:0 16px;background:#1D9E75;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">조회</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">품목</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">평균가</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">최저</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">최고</th>
+            <th style="text-align:left;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">단위</th>
+            <th style="text-align:right;padding:8px 12px;background:#f5f5f0;font-weight:500;font-size:12px;color:#73726c;border-bottom:0.5px solid #d3d1c7;">거래건수</th>
+          </tr>
+        </thead>
+        <tbody id="marketDetailBody">
+          <tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">시장을 선택하고 "조회"를 클릭하세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 원산지별 수입물량 -->
   <div class="chart-card" style="margin-bottom:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
@@ -743,6 +786,32 @@ async function loadOrigins() {
 
 // ===== 가락시장 오늘 시세 (주식 스타일) =====
 let garakHistChart;
+
+async function loadMarketDetail() {
+  const code = document.getElementById('marketSelect').value;
+  const tbody = document.getElementById('marketDetailBody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">불러오는 중... (품목별 순차 조회)</td></tr>';
+  try {
+    const res = await fetch(`${SERVER}/api/market?code=${code}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">${json.error || (json.market+' 오늘 거래 데이터 없음')}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = json.data.map(d => `
+      <tr style="border-bottom:0.5px solid #f1efe8;">
+        <td style="padding:9px 12px;font-size:13px;font-weight:500;">${d.name}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:500;">₩${d.avg.toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">₩${d.min.toLocaleString()}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">₩${d.max.toLocaleString()}</td>
+        <td style="padding:9px 12px;font-size:12px;color:#73726c;">${d.unit}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#888780;">${d.count}건</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">불러오기 실패</td></tr>';
+  }
+}
 
 async function loadNationwide(item, btnId) {
   document.querySelectorAll('[id^="nw-"]').forEach(b => b.className = 'btn-sm btn-gray');

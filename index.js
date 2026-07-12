@@ -412,7 +412,7 @@ const NATIONWIDE_FRUIT_CODES = {
   '포도': '03', '체리': '57', '키위': '11', '블루베리': '59', '아보카도': '34'
 };
 const NATIONWIDE_MARKETS = {
-  '110001': '서울가락', '110008': '서울강서', '230001': '인천남촌',
+  '110001': '서울가락', '110008': '서울강서', '230001': '인천남촌', '311201': '구리',
   '210001': '부산엄궁', '210009': '부산반여', '220001': '대구북부',
   '240001': '광주각화', '240004': '광주서부', '250001': '대전오정', '250003': '대전노은',
   '380201': '울산', '310101': '수원', '310401': '안양', '340101': '천안',
@@ -420,6 +420,43 @@ const NATIONWIDE_MARKETS = {
   '370401': '안동', '380401': '진주', '380303': '창원내서', '380101': '창원팔용',
   '360301': '순천'
 };
+// ── 특정 시장 전품목 시세 (인천남촌 등 개별 시장 상세 조회용) ──
+app.get('/api/market', async (req, res) => {
+  const kst = new Date(new Date().getTime() + 9*60*60*1000);
+  const today = req.query.date || kst.toISOString().slice(0,10);
+  const marketCd = req.query.code || '230001'; // 기본값: 인천남촌
+  const marketNm = NATIONWIDE_MARKETS[marketCd] || marketCd;
+  try {
+    const results = [];
+    for (const [name, mclsfCd] of Object.entries(NATIONWIDE_FRUIT_CODES)) {
+      try {
+        const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
+          params: {
+            serviceKey: API_KEY, numOfRows: 200, pageNo: 1, returnType: 'json',
+            'cond[trd_clcln_ymd::EQ]': today,
+            'cond[gds_lclsf_cd::EQ]': '06',
+            'cond[gds_mclsf_cd::EQ]': mclsfCd,
+            'cond[whsl_mrkt_cd::EQ]': marketCd
+          }
+        });
+        const items = response.data?.response?.body?.items?.item || [];
+        const arr = Array.isArray(items) ? items : [items];
+        const prices = arr.map(d => parseFloat(d.scsbd_prc)).filter(p => p > 0);
+        if (prices.length) {
+          const avg = Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
+          const min = Math.round(Math.min(...prices));
+          const max = Math.round(Math.max(...prices));
+          const unit = arr[0]?.unit_qty ? `${parseFloat(arr[0].unit_qty)}${arr[0].unit_nm||'kg'}` : '';
+          results.push({ name, avg, min, max, unit, count: prices.length });
+        }
+      } catch (e) { /* 품목 스킵 */ }
+    }
+    res.json({ success: true, market: marketNm, marketCd, date: today, data: results });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
 app.get('/api/nationwide', async (req, res) => {
   const kst = new Date(new Date().getTime() + 9*60*60*1000);
   const today = req.query.date || kst.toISOString().slice(0,10);
