@@ -183,7 +183,22 @@ main { flex:1; padding:12px 12px 84px; }
         <option value="210009">부산반여</option>
         <option value="220001">대구북부</option>
         <option value="240001">광주각화</option>
+        <option value="240004">광주서부</option>
         <option value="250001">대전오정</option>
+        <option value="250003">대전노은</option>
+        <option value="380201">울산</option>
+        <option value="310101">수원</option>
+        <option value="310401">안양</option>
+        <option value="340101">천안</option>
+        <option value="330101">청주</option>
+        <option value="320301">강릉</option>
+        <option value="370101">포항</option>
+        <option value="371501">구미</option>
+        <option value="370401">안동</option>
+        <option value="380401">진주</option>
+        <option value="380303">창원내서</option>
+        <option value="380101">창원팔용</option>
+        <option value="360301">순천</option>
       </select>
       <div id="tradesList"></div>
     </section>
@@ -196,9 +211,19 @@ main { flex:1; padding:12px 12px 84px; }
         <div class="chartwrap" style="height:300px;"><canvas id="chartA"></canvas></div>
       </div>
       <div class="ccard">
-        <h3 id="chartBTitle">가락시장 가격 추이</h3>
-        <div class="sub">13kg 상자 · 상 등급 · 최근 2주</div>
-        <div class="chartwrap" style="height:220px;"><canvas id="chartB"></canvas></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <h3 id="chartBTitle">가락시장 바나나 가격 추이</h3>
+            <div class="sub" id="chartBSub">13kg 상자 · 상 등급 · 최근 2주</div>
+          </div>
+          <div style="display:flex;gap:4px;">
+            <button class="chip grade-chip" data-grade="특" onclick="pickGrade('특')" style="height:28px;padding:0 10px;">특</button>
+            <button class="chip grade-chip on" data-grade="상" onclick="pickGrade('상')" style="height:28px;padding:0 10px;">상</button>
+            <button class="chip grade-chip" data-grade="중" onclick="pickGrade('중')" style="height:28px;padding:0 10px;">중</button>
+            <button class="chip grade-chip" data-grade="하" onclick="pickGrade('하')" style="height:28px;padding:0 10px;">하</button>
+          </div>
+        </div>
+        <div class="chartwrap" style="height:220px;margin-top:12px;"><canvas id="chartB"></canvas></div>
       </div>
     </section>
 
@@ -254,7 +279,7 @@ main { flex:1; padding:12px 12px 84px; }
 <script>
 const SERVER = '';
 const ITEMS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도'];
-const state = { date: new Date(), item: '바나나', tab: 'trades' };
+const state = { date: new Date(), item: '바나나', grade: '상', tab: 'trades' };
 let chartA = null, chartB = null;
 
 // ── 날짜 ──
@@ -325,9 +350,16 @@ async function loadTrades() {
 }
 
 // ── 차트 ──
+function pickGrade(g) {
+  state.grade = g;
+  document.querySelectorAll('.grade-chip').forEach(b => b.classList.toggle('on', b.dataset.grade===g));
+  loadCharts();
+}
+
 async function loadCharts() {
   document.getElementById('chartATitle').textContent = `${state.item} 시장별 평균가`;
   document.getElementById('chartBTitle').textContent = `가락시장 ${state.item} 가격 추이`;
+  document.getElementById('chartBSub').textContent = `${state.grade} 등급 · 최근 2주`;
   try {
     const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
     const json = await res.json();
@@ -354,7 +386,7 @@ async function loadCharts() {
     }
   } catch(e) {}
   try {
-    const res = await fetch(`${SERVER}/api/garak/history?item=${encodeURIComponent(state.item)}&grade=상&days=14`);
+    const res = await fetch(`${SERVER}/api/garak/history?item=${encodeURIComponent(state.item)}&grade=${encodeURIComponent(state.grade)}&days=14`);
     const json = await res.json();
     if (chartB) { chartB.destroy(); chartB = null; }
     if (json.success && json.data?.length) {

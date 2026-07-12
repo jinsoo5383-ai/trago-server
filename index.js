@@ -441,13 +441,14 @@ app.get('/api/market', async (req, res) => {
         });
         const items = response.data?.response?.body?.items?.item || [];
         const arr = Array.isArray(items) ? items : [items];
-        const prices = arr.map(d => parseFloat(d.scsbd_prc)).filter(p => p > 0);
-        if (prices.length) {
-          const avg = Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
-          const min = Math.round(Math.min(...prices));
-          const max = Math.round(Math.max(...prices));
+        const rows = arr.map(d => ({ price: parseFloat(d.scsbd_prc), qty: parseFloat(d.qty) || 1 })).filter(r => r.price > 0);
+        if (rows.length) {
+          const totalQty = rows.reduce((a,r)=>a+r.qty, 0);
+          const avg = Math.round(rows.reduce((a,r)=>a+r.price*r.qty, 0)/totalQty);
+          const min = Math.round(Math.min(...rows.map(r=>r.price)));
+          const max = Math.round(Math.max(...rows.map(r=>r.price)));
           const unit = arr[0]?.unit_qty ? `${parseFloat(arr[0].unit_qty)}${arr[0].unit_nm||'kg'}` : '';
-          results.push({ name, avg, min, max, unit, count: prices.length });
+          results.push({ name, avg, min, max, unit, count: rows.length });
         }
       } catch (e) { /* 품목 스킵 */ }
     }
@@ -481,24 +482,28 @@ app.get('/api/trades', async (req, res) => {
     const grouped = {};
     arr.forEach(d => {
       const price = parseFloat(d.scsbd_prc);
+      const qty = parseFloat(d.qty) || 1;
       if (!price) return;
       const spec = `${parseFloat(d.unit_qty) || ''}${d.unit_nm || ''} ${d.pkg_nm || ''}`.trim();
       const key = d.corp_nm + '||' + spec + '||' + (d.corp_gds_vrty_nm || '');
       if (!grouped[key]) grouped[key] = {
         corp: d.corp_nm,
         market: NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm,
-        vrty: d.corp_gds_vrty_nm || item, spec, count: 0, prices: []
+        vrty: d.corp_gds_vrty_nm || item, spec, count: 0, rows: []
       };
-      grouped[key].count += parseFloat(d.qty) || 0;
-      grouped[key].prices.push(price);
+      grouped[key].count += qty;
+      grouped[key].rows.push({ price, qty });
     });
-    const data = Object.values(grouped).map(g => ({
-      corp: g.corp, market: g.market, vrty: g.vrty, spec: g.spec,
-      count: Math.round(g.count),
-      avg: Math.round(g.prices.reduce((a,b)=>a+b,0)/g.prices.length),
-      max: Math.round(Math.max(...g.prices)),
-      min: Math.round(Math.min(...g.prices))
-    })).sort((a,b) => b.count - a.count);
+    const data = Object.values(grouped).map(g => {
+      const totalQty = g.rows.reduce((a,r)=>a+r.qty, 0);
+      return {
+        corp: g.corp, market: g.market, vrty: g.vrty, spec: g.spec,
+        count: Math.round(g.count),
+        avg: Math.round(g.rows.reduce((a,r)=>a+r.price*r.qty, 0)/totalQty),
+        max: Math.round(Math.max(...g.rows.map(r=>r.price))),
+        min: Math.round(Math.min(...g.rows.map(r=>r.price)))
+      };
+    }).sort((a,b) => b.count - a.count);
     res.json({ success: true, item, date, totalCount: response.data?.response?.body?.totalCount || 0, data });
   } catch (e) {
     res.json({ success: false, error: e.message });
@@ -529,24 +534,29 @@ app.get('/api/nationwide', async (req, res) => {
     });
     const items = response.data?.response?.body?.items?.item || [];
     const arr = Array.isArray(items) ? items : [items];
-    // 시장별로 그룹핑, kg당 단가로 정규화 (박스가격 ÷ 박스중량)
+    // 시장별로 그룹핑, kg당 단가로 정규화 (박스가격 ÷ 박스중량), 총 거래중량(qty×박스중량)으로 가중평균
     const grouped = {};
     arr.forEach(d => {
       const marketNm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
       const price = parseFloat(d.scsbd_prc);
       const unitQty = parseFloat(d.unit_qty) || 1;
+      const qty = parseFloat(d.qty) || 1;
       if (!price || !unitQty) return;
       const pricePerKg = price / unitQty;
-      if (!grouped[marketNm]) grouped[marketNm] = { market: marketNm, prices: [] };
-      grouped[marketNm].prices.push(pricePerKg);
+      const weight = unitQty * qty; // 총 거래중량(kg)
+      if (!grouped[marketNm]) grouped[marketNm] = { market: marketNm, rows: [] };
+      grouped[marketNm].rows.push({ pricePerKg, weight });
     });
-    const result = Object.values(grouped).map(g => ({
-      market: g.market,
-      avgPricePerKg: Math.round(g.prices.reduce((a,b)=>a+b,0)/g.prices.length),
-      minPricePerKg: Math.round(Math.min(...g.prices)),
-      maxPricePerKg: Math.round(Math.max(...g.prices)),
-      count: g.prices.length
-    })).sort((a,b) => a.avgPricePerKg - b.avgPricePerKg);
+    const result = Object.values(grouped).map(g => {
+      const totalWeight = g.rows.reduce((a,r)=>a+r.weight, 0);
+      return {
+        market: g.market,
+        avgPricePerKg: Math.round(g.rows.reduce((a,r)=>a+r.pricePerKg*r.weight, 0)/totalWeight),
+        minPricePerKg: Math.round(Math.min(...g.rows.map(r=>r.pricePerKg))),
+        maxPricePerKg: Math.round(Math.max(...g.rows.map(r=>r.pricePerKg))),
+        count: g.rows.length
+      };
+    }).sort((a,b) => a.avgPricePerKg - b.avgPricePerKg);
     res.json({ success: true, item, date: today, totalCount: response.data?.response?.body?.totalCount || 0, data: result });
   } catch (e) {
     res.json({ success: false, error: e.message });
