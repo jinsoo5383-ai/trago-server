@@ -572,9 +572,12 @@ app.get('/api/nationwide', async (req, res) => {
     });
     const items = response.data?.response?.body?.items?.item || [];
     const arr = Array.isArray(items) ? items : [items];
+    const vrtyOptions = [...new Set(arr.map(d => d.corp_gds_vrty_nm).filter(Boolean))];
+    const vrtyFilter = req.query.vrty || '';
+    const filtered = vrtyFilter ? arr.filter(d => d.corp_gds_vrty_nm === vrtyFilter) : arr;
     // 시장별로 그룹핑, kg당 단가로 정규화 (박스가격 ÷ 박스중량), 총 거래중량(qty×박스중량)으로 가중평균
     const grouped = {};
-    arr.forEach(d => {
+    filtered.forEach(d => {
       const marketNm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
       const price = parseFloat(d.scsbd_prc);
       const unitQty = parseFloat(d.unit_qty) || 1;
@@ -596,7 +599,7 @@ app.get('/api/nationwide', async (req, res) => {
         count: g.rows.length
       };
     }).sort((a,b) => a.avgPricePerKg - b.avgPricePerKg);
-    res.json({ success: true, item, date: today, totalCount: response.data?.response?.body?.totalCount || 0, data: result });
+    res.json({ success: true, item, date: today, vrtyOptions, vrtyFilter, totalCount: response.data?.response?.body?.totalCount || 0, data: result });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }

@@ -88,10 +88,10 @@ main { flex:1; padding:12px 12px 84px; }
 .prices .mn { font-size:12.5px; font-weight:600; color:var(--blue); margin-top:1px; }
 .prices .lbl { font-size:10px; color:var(--faint); font-weight:500; margin-right:4px; }
 /* 시장 필터 */
-#mktfilter {
+#mktfilter, .selectbox {
   width:100%; height:40px; border:1px solid var(--line); border-radius:12px;
   background:var(--card); padding:0 12px; font-size:13px; font-family:inherit;
-  color:var(--ink); margin-bottom:10px; outline:none;
+  color:var(--ink); margin-bottom:10px; outline:none; -webkit-appearance:none; appearance:none;
 }
 /* 차트 카드 */
 .ccard {
@@ -174,7 +174,7 @@ main { flex:1; padding:12px 12px 84px; }
     <!-- 실거래 -->
     <section class="tabpane on" id="pane-trades">
       <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <select id="mktfilter" onchange="loadTrades()" style="flex:1;">
+        <select id="mktfilter" onchange="loadTrades()" style="flex:1;margin-bottom:0;">
         <option value="">시장 전체</option>
         <option value="110001">서울가락</option>
         <option value="110008">서울강서</option>
@@ -201,7 +201,7 @@ main { flex:1; padding:12px 12px 84px; }
         <option value="380101">창원팔용</option>
         <option value="360301">순천</option>
         </select>
-        <select id="sortSelect" onchange="renderTrades()" style="flex:1;">
+        <select id="sortSelect" onchange="renderTrades()" class="selectbox" style="flex:1;margin-bottom:0;">
           <option value="count">거래량 많은순</option>
           <option value="avgAsc">평균가 낮은순</option>
           <option value="avgDesc">평균가 높은순</option>
@@ -215,7 +215,9 @@ main { flex:1; padding:12px 12px 84px; }
       <div class="ccard">
         <h3 id="chartATitle">시장별 평균가</h3>
         <div class="sub">kg당 단가 기준 · 저렴한 순</div>
-        <div class="chartwrap" style="height:300px;"><canvas id="chartA"></canvas></div>
+        <div style="max-height:340px;overflow-y:auto;">
+          <div class="chartwrap" id="chartAWrap"><canvas id="chartA"></canvas></div>
+        </div>
       </div>
       <div class="ccard">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
@@ -252,6 +254,7 @@ main { flex:1; padding:12px 12px 84px; }
 
     <!-- 전국 -->
     <section class="tabpane" id="pane-nation">
+      <select id="vrtySelect" onchange="loadNation()" class="selectbox"><option value="">전체 구분</option></select>
       <div id="nationList"></div>
     </section>
 
@@ -406,7 +409,8 @@ async function loadCharts() {
     const json = await res.json();
     if (chartA) { chartA.destroy(); chartA = null; }
     if (json.success && json.data?.length) {
-      const top = json.data.slice(0, 12);
+      const top = json.data;
+      document.getElementById('chartAWrap').style.height = Math.max(280, top.length * 30) + 'px';
       chartA = new Chart(document.getElementById('chartA'), {
         type: 'bar',
         data: {
@@ -461,9 +465,17 @@ async function loadCharts() {
 async function loadNation() {
   const el = document.getElementById('nationList');
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  const vrty = document.getElementById('vrtySelect').value;
   try {
-    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
+    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);
     const json = await res.json();
+    // 구분 드롭다운 채우기(품목 바뀔 때마다 옵션이 달라짐)
+    const sel = document.getElementById('vrtySelect');
+    const cur = sel.value;
+    if (json.vrtyOptions) {
+      sel.innerHTML = '<option value="">전체 구분</option>' + json.vrtyOptions.map(v => `<option value="${v}">${v}</option>`).join('');
+      sel.value = json.vrtyOptions.includes(cur) ? cur : '';
+    }
     if (!json.success || !json.data?.length) {
       el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.</div>`;
       return;
