@@ -62,6 +62,11 @@ body {
   font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;
 }
 .chip.on { background:var(--green); border-color:var(--green); color:#fff; }
+.seg {
+  flex:1; height:34px; border:none; border-radius:10px; background:transparent;
+  font-family:inherit; font-size:13px; font-weight:700; color:var(--sub); cursor:pointer;
+}
+.seg.on { background:var(--card); color:var(--green); box-shadow:0 1px 3px rgba(0,0,0,0.08); }
 /* ── 콘텐츠 ── */
 main { flex:1; padding:12px 12px 84px; }
 .tabpane { display:none; }
@@ -163,13 +168,17 @@ main { flex:1; padding:12px 12px 84px; }
 
   <div id="top">
     <div id="brand">
-      <div class="logo">Trago<span>수입과일 실시간 시세</span></div>
+      <div class="logo">Trago<span>과일 실시간 시세</span></div>
       <div class="live">● LIVE</div>
     </div>
     <div id="datenav">
       <button onclick="shiftDate(-1)" aria-label="이전 날짜">‹</button>
       <div class="d" id="dateLabel">—</div>
       <button onclick="shiftDate(1)" aria-label="다음 날짜">›</button>
+    </div>
+    <div style="display:flex;gap:0;margin:0 16px 10px;background:#EBE9E0;border-radius:12px;padding:3px;">
+      <button id="seg-import" class="seg on" onclick="pickOrigin('import')">수입과일</button>
+      <button id="seg-domestic" class="seg" onclick="pickOrigin('domestic')">국산과일</button>
     </div>
     <div id="chips"></div>
   </div>
@@ -332,10 +341,12 @@ main { flex:1; padding:12px 12px 84px; }
 
 <script>
 const SERVER = '';
-const ITEMS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도'];
+const ITEMS_IMPORT = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
+const ITEMS_DOMESTIC = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
+function currentItems() { return state.origin === 'domestic' ? ITEMS_DOMESTIC : ITEMS_IMPORT; }
 // 품목별로 시장에서 흔히 찾는 상자 단위(kg) — "kg당"이 아니라 "상자당"으로 보고 싶을 때 기본값
-const BOX_KG = { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, '레몬':10, '포도':8, '체리':5, '키위':6, '블루베리':10, '아보카도':5 };
-const state = { date: new Date(), item: '바나나', tab: 'trades' };
+const BOX_KG = { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, '레몬':10, '포도':8, '체리':5, '키위':6, '블루베리':10, '아보카도':5, '멜론':8, '수박':8, '참외':10, '복숭아':4.5, '자두':5, '사과':10, '배':15, '감귤':10 };
+const state = { date: new Date(), item: '바나나', origin: 'import', tab: 'trades' };
 let chartA = null, chartB = null;
 
 // ── 캐시된 fetch: 같은 URL은 세션 내에서 재호출 안 함 ──
@@ -364,9 +375,21 @@ function shiftDate(n) {
 
 // ── 품목 칩 ──
 function renderChips() {
-  document.getElementById('chips').innerHTML = ITEMS.map(i =>
+  document.getElementById('chips').innerHTML = currentItems().map(i =>
     `<button class="chip${i===state.item?' on':''}" onclick="pickItem('${i}')">${i}</button>`
   ).join('');
+}
+function pickOrigin(o) {
+  state.origin = o;
+  document.getElementById('seg-import').classList.toggle('on', o==='import');
+  document.getElementById('seg-domestic').classList.toggle('on', o==='domestic');
+  if (!currentItems().includes(state.item)) state.item = currentItems()[0];
+  const boxInput = document.getElementById('boxKgInput');
+  if (boxInput) boxInput.value = BOX_KG[state.item] || 13;
+  const boxInputNation = document.getElementById('boxKgInputNation');
+  if (boxInputNation) boxInputNation.value = BOX_KG[state.item] || 13;
+  renderChips();
+  refresh();
 }
 function pickItem(i) {
   state.item = i; renderChips();
@@ -398,7 +421,7 @@ async function loadTrades() {
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const mkt = document.getElementById('mktfilter').value;
   try {
-    const json = await cachedFetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}${mkt?'&market='+mkt:''}`);
+    const json = await cachedFetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}${mkt?'&market='+mkt:''}`);
     if (!json.success || !json.data?.length) {
       tradesData = [];
       el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.<br>휴장일(일요일)이거나 아직 경매 전일 수 있어요.</div>`;
@@ -463,7 +486,7 @@ async function loadCharts() {
   document.getElementById('chartBTitle').textContent = `${mktNm} ${state.item} 가격 추이`;
   document.getElementById('chartBSub').textContent = `물량가중평균 · ${unit.label} · 최근 2주`;
   try {
-    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
+    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}`);
     if (chartA) { chartA.destroy(); chartA = null; }
     if (json.success && json.data?.length) {
       const top = json.data;
@@ -488,7 +511,7 @@ async function loadCharts() {
     }
   } catch(e) {}
   try {
-    const json = await cachedFetch(`${SERVER}/api/trend?item=${encodeURIComponent(state.item)}&market=${mktCd}&days=14`);
+    const json = await cachedFetch(`${SERVER}/api/trend?item=${encodeURIComponent(state.item)}&market=${mktCd}&days=14&origin=${state.origin}`);
     if (chartB) { chartB.destroy(); chartB = null; }
     if (json.success && json.data?.length) {
       chartB = new Chart(document.getElementById('chartB'), {
@@ -520,7 +543,7 @@ async function loadNation() {
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const vrty = document.getElementById('vrtySelect').value;
   try {
-    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);
+    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);
     // 구분 드롭다운 채우기(품목 바뀔 때마다 옵션이 달라짐)
     const sel = document.getElementById('vrtySelect');
     const cur = sel.value;

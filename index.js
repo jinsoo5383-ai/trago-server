@@ -407,10 +407,22 @@ app.get('/api/guri/all', async (req, res) => {
 
 // ── 전국 공영도매시장 실시간 경매정보 (data.go.kr B552845/katRealTime2) ──
 // 가락시장 외 전국 주요 도매시장 시세를 한번에 비교하기 위한 엔드포인트
-const NATIONWIDE_FRUIT_CODES = {
-  '바나나': '12', '망고': '36', '파인애플': '13', '오렌지': '18', '레몬': '17',
-  '포도': '03', '체리': '57', '키위': '11', '블루베리': '59', '아보카도': '34'
+// l: 대분류(06 과실류, 08 과채류), m: 중분류
+const FRUIT_CODES = {
+  // 수입과일
+  '바나나': { l:'06', m:'12' }, '망고': { l:'06', m:'36' }, '파인애플': { l:'06', m:'13' },
+  '오렌지': { l:'06', m:'18' }, '레몬': { l:'06', m:'17' }, '포도': { l:'06', m:'03' },
+  '체리': { l:'06', m:'57' }, '키위': { l:'06', m:'11' }, '블루베리': { l:'06', m:'59' },
+  '아보카도': { l:'06', m:'34' }, '멜론': { l:'08', m:'05' },
+  // 국산과일
+  '사과': { l:'06', m:'01' }, '배': { l:'06', m:'02' }, '복숭아': { l:'06', m:'04' },
+  '자두': { l:'06', m:'08' }, '감귤': { l:'06', m:'14' },
+  '수박': { l:'08', m:'01' }, '참외': { l:'08', m:'02' }
 };
+// 대시보드(trago_live.html) 개별시장 조회용 수입과일 목록
+const IMPORT_FRUITS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
+// 하위호환용 별칭
+const NATIONWIDE_FRUIT_CODES = Object.fromEntries(IMPORT_FRUITS.map(n => [n, FRUIT_CODES[n].m]));
 const NATIONWIDE_MARKETS = {
   '110001': '서울가락', '110008': '서울강서', '230001': '인천남촌', '311201': '구리',
   '210001': '부산엄궁', '210009': '부산반여', '220001': '대구북부',
@@ -429,11 +441,17 @@ function isDomesticOrigin(plorNm) {
   if (/[시군구읍면동리]/.test(s)) return true;
   return false;
 }
-// 바나나/망고/파인애플/아보카도/레몬은 한국 기후상 상업재배 자체가 불가능 → 100% 수입.
-// 이 품목들의 plor_nm에 한국 지명이 찍히는 건 "후숙장/처리장 위치"일 뿐 국산이라는 뜻이 아니므로 필터 대상에서 제외.
-// 포도/블루베리/체리는 국내 재배가 실제로 있어서 필터가 필요함. 키위는 국내(참다래) 비중도 커서 필터 안 함(국산도 보여줌).
-const DOMESTIC_GROWABLE = ['포도', '블루베리', '체리'];
-function shouldFilterDomestic(item) { return DOMESTIC_GROWABLE.includes(item); }
+// 바나나/망고/파인애플/아보카도/레몬/오렌지는 한국 기후상 상업재배 자체가 불가능 → 100% 수입.
+// 이 품목들의 plor_nm에 한국 지명이 찍히는 건 "후숙장/처리장 위치"일 뿐 국산이라는 뜻이 아니므로 원산지 필터를 적용하지 않음.
+const IMPORT_ONLY = ['바나나', '망고', '파인애플', '아보카도', '레몬', '오렌지'];
+// origin: 'import'(수입만, 기본) | 'domestic'(국산만) | 'all'(전체)
+function applyOriginFilter(arr, item, origin) {
+  if (origin === 'all') return arr;
+  if (origin === 'domestic') return arr.filter(d => isDomesticOrigin(d.plor_nm));
+  // import (기본): 수입전용 품목은 필터 없음, 국산·수입 혼재 품목은 국산 제외
+  if (IMPORT_ONLY.includes(item)) return arr;
+  return arr.filter(d => !isDomesticOrigin(d.plor_nm));
+}
 
 // ── 특정 시장 전품목 시세 (인천남촌 등 개별 시장 상세 조회용) ──
 app.get('/api/market', async (req, res) => {
@@ -443,20 +461,21 @@ app.get('/api/market', async (req, res) => {
   const marketNm = NATIONWIDE_MARKETS[marketCd] || marketCd;
   try {
     const results = [];
-    for (const [name, mclsfCd] of Object.entries(NATIONWIDE_FRUIT_CODES)) {
+    for (const name of IMPORT_FRUITS) {
+      const fc = FRUIT_CODES[name];
       try {
         const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
           params: {
             serviceKey: API_KEY, numOfRows: 200, pageNo: 1, returnType: 'json',
             'cond[trd_clcln_ymd::EQ]': today,
-            'cond[gds_lclsf_cd::EQ]': '06',
-            'cond[gds_mclsf_cd::EQ]': mclsfCd,
+            'cond[gds_lclsf_cd::EQ]': fc.l,
+            'cond[gds_mclsf_cd::EQ]': fc.m,
             'cond[whsl_mrkt_cd::EQ]': marketCd
           }
         });
         const items = response.data?.response?.body?.items?.item || [];
         let arr = Array.isArray(items) ? items : [items];
-        if (shouldFilterDomestic(name)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
+        arr = applyOriginFilter(arr, name, req.query.origin || 'import');
         const rows = arr.map(d => ({ price: parseFloat(d.scsbd_prc), qty: parseFloat(d.qty) || 1 })).filter(r => r.price > 0);
         if (rows.length) {
           const totalQty = rows.reduce((a,r)=>a+r.qty, 0);
@@ -480,22 +499,22 @@ app.get('/api/trades', async (req, res) => {
   const date = req.query.date || kst.toISOString().slice(0,10);
   const item = req.query.item || '바나나';
   const marketCd = req.query.market || '';
-  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
-  if (!mclsfCd) {
-    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(NATIONWIDE_FRUIT_CODES).join(', ')}` });
+  const fc = FRUIT_CODES[item];
+  if (!fc) {
+    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(FRUIT_CODES).join(', ')}` });
   }
   try {
     const params = {
       serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
       'cond[trd_clcln_ymd::EQ]': date,
-      'cond[gds_lclsf_cd::EQ]': '06',
-      'cond[gds_mclsf_cd::EQ]': mclsfCd
+      'cond[gds_lclsf_cd::EQ]': fc.l,
+      'cond[gds_mclsf_cd::EQ]': fc.m
     };
     if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
     const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
     const items = response.data?.response?.body?.items?.item || [];
     let arr = Array.isArray(items) ? items : [items];
-    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
+    arr = applyOriginFilter(arr, item, req.query.origin || 'import');
     const grouped = {};
     arr.forEach(d => {
       const price = parseFloat(d.scsbd_prc);
@@ -532,8 +551,8 @@ app.get('/api/trend', async (req, res) => {
   const item = req.query.item || '바나나';
   const marketCd = req.query.market || '110001';
   const days = parseInt(req.query.days) || 14;
-  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
-  if (!mclsfCd) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
+  const fc = FRUIT_CODES[item];
+  if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
   const results = [];
   for (let i = days; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -544,14 +563,14 @@ app.get('/api/trend', async (req, res) => {
         params: {
           serviceKey: API_KEY, numOfRows: 500, pageNo: 1, returnType: 'json',
           'cond[trd_clcln_ymd::EQ]': dateStr,
-          'cond[gds_lclsf_cd::EQ]': '06',
-          'cond[gds_mclsf_cd::EQ]': mclsfCd,
+          'cond[gds_lclsf_cd::EQ]': fc.l,
+          'cond[gds_mclsf_cd::EQ]': fc.m,
           'cond[whsl_mrkt_cd::EQ]': marketCd
         }
       });
       const items = response.data?.response?.body?.items?.item || [];
       let arr = Array.isArray(items) ? items : [items];
-    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
+    arr = applyOriginFilter(arr, item, req.query.origin || 'import');
       const rows = arr.map(x => {
         const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1, qty = parseFloat(x.qty) || 1;
         return { pricePerKg: price/unitQty, weight: unitQty*qty };
@@ -575,22 +594,22 @@ app.get('/api/nationwide', async (req, res) => {
   const kst = new Date(new Date().getTime() + 9*60*60*1000);
   const today = req.query.date || kst.toISOString().slice(0,10);
   const item = req.query.item || '바나나';
-  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
-  if (!mclsfCd) {
-    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(NATIONWIDE_FRUIT_CODES).join(', ')}` });
+  const fc = FRUIT_CODES[item];
+  if (!fc) {
+    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(FRUIT_CODES).join(', ')}` });
   }
   try {
     const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
       params: {
         serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
         'cond[trd_clcln_ymd::EQ]': today,
-        'cond[gds_lclsf_cd::EQ]': '06',
-        'cond[gds_mclsf_cd::EQ]': mclsfCd
+        'cond[gds_lclsf_cd::EQ]': fc.l,
+        'cond[gds_mclsf_cd::EQ]': fc.m
       }
     });
     const items = response.data?.response?.body?.items?.item || [];
     let arr = Array.isArray(items) ? items : [items];
-    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
+    arr = applyOriginFilter(arr, item, req.query.origin || 'import');
     const vrtyOptions = [...new Set(arr.map(d => d.corp_gds_vrty_nm).filter(Boolean))];
     const vrtyFilter = req.query.vrty || '';
     const filtered = vrtyFilter ? arr.filter(d => d.corp_gds_vrty_nm === vrtyFilter) : arr;
