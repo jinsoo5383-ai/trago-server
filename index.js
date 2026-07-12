@@ -431,8 +431,8 @@ function isDomesticOrigin(plorNm) {
 }
 // 바나나/망고/파인애플/아보카도/레몬은 한국 기후상 상업재배 자체가 불가능 → 100% 수입.
 // 이 품목들의 plor_nm에 한국 지명이 찍히는 건 "후숙장/처리장 위치"일 뿐 국산이라는 뜻이 아니므로 필터 대상에서 제외.
-// 포도/블루베리/키위/체리는 국내 재배가 실제로 있어서 필터가 필요함.
-const DOMESTIC_GROWABLE = ['포도', '블루베리', '키위', '체리'];
+// 포도/블루베리/체리는 국내 재배가 실제로 있어서 필터가 필요함. 키위는 국내(참다래) 비중도 커서 필터 안 함(국산도 보여줌).
+const DOMESTIC_GROWABLE = ['포도', '블루베리', '체리'];
 function shouldFilterDomestic(item) { return DOMESTIC_GROWABLE.includes(item); }
 
 // ── 특정 시장 전품목 시세 (인천남촌 등 개별 시장 상세 조회용) ──

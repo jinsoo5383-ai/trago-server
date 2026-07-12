@@ -273,6 +273,15 @@ main { flex:1; padding:12px 12px 84px; }
     <!-- 전국 -->
     <section class="tabpane" id="pane-nation">
       <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">시장별로 묶어 평균낸 <b>순위</b>예요. 개별 거래 내역은 실거래 탭에서 볼 수 있어요.</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:12px;color:var(--sub);flex:0 0 auto;">표시 단위</span>
+        <select id="unitModeNation" onchange="onUnitModeChangeNation()" class="selectbox" style="width:auto;flex:0 0 auto;height:34px;margin-bottom:0;padding:0 10px;">
+          <option value="kg">kg당</option>
+          <option value="box">상자(box)당</option>
+        </select>
+        <input id="boxKgInputNation" type="number" min="0.5" step="0.5" value="13" oninput="loadNation()" style="display:none;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
+        <span id="boxKgLabelNation" style="display:none;font-size:12px;color:var(--sub);">kg 상자</span>
+      </div>
       <select id="vrtySelect" onchange="loadNation()" class="selectbox"><option value="">전체 구분</option></select>
       <div id="nationList"></div>
     </section>
@@ -329,6 +338,16 @@ const BOX_KG = { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, 
 const state = { date: new Date(), item: '바나나', tab: 'trades' };
 let chartA = null, chartB = null;
 
+// ── 캐시된 fetch: 같은 URL은 세션 내에서 재호출 안 함 ──
+const fetchCache = new Map();
+async function cachedFetch(url) {
+  if (fetchCache.has(url)) return fetchCache.get(url);
+  const res = await fetch(url);
+  const json = await res.json();
+  fetchCache.set(url, json);
+  return json;
+}
+
 // ── 날짜 ──
 function ymd(d) { const k = new Date(d.getTime() + 9*3600*1000 - d.getTimezoneOffset()*-60000); return d.toLocaleDateString('sv-SE'); }
 function dateStr() { return state.date.toLocaleDateString('sv-SE'); }
@@ -353,6 +372,8 @@ function pickItem(i) {
   state.item = i; renderChips();
   const boxInput = document.getElementById('boxKgInput');
   if (boxInput) boxInput.value = BOX_KG[i] || 13;
+  const boxInputNation = document.getElementById('boxKgInputNation');
+  if (boxInputNation) boxInputNation.value = BOX_KG[i] || 13;
   refresh();
 }
 
@@ -377,8 +398,7 @@ async function loadTrades() {
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const mkt = document.getElementById('mktfilter').value;
   try {
-    const res = await fetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}${mkt?'&market='+mkt:''}`);
-    const json = await res.json();
+    const json = await cachedFetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}${mkt?'&market='+mkt:''}`);
     if (!json.success || !json.data?.length) {
       tradesData = [];
       el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.<br>휴장일(일요일)이거나 아직 경매 전일 수 있어요.</div>`;
@@ -421,10 +441,16 @@ function onUnitModeChange() {
   document.getElementById('boxKgLabel').style.display = isBox ? 'inline' : 'none';
   loadCharts();
 }
-function getUnitMultiplier() {
-  const isBox = document.getElementById('unitMode').value === 'box';
+function onUnitModeChangeNation() {
+  const isBox = document.getElementById('unitModeNation').value === 'box';
+  document.getElementById('boxKgInputNation').style.display = isBox ? 'inline-block' : 'none';
+  document.getElementById('boxKgLabelNation').style.display = isBox ? 'inline' : 'none';
+  loadNation();
+}
+function getUnitMultiplier(suffix = '') {
+  const isBox = document.getElementById('unitMode'+suffix).value === 'box';
   if (!isBox) return { mult: 1, suffix: '/kg', label: 'kg당' };
-  const kg = parseFloat(document.getElementById('boxKgInput').value) || BOX_KG[state.item] || 13;
+  const kg = parseFloat(document.getElementById('boxKgInput'+suffix).value) || BOX_KG[state.item] || 13;
   return { mult: kg, suffix: `/${kg}kg상자`, label: `${kg}kg 상자당` };
 }
 
@@ -437,8 +463,7 @@ async function loadCharts() {
   document.getElementById('chartBTitle').textContent = `${mktNm} ${state.item} 가격 추이`;
   document.getElementById('chartBSub').textContent = `물량가중평균 · ${unit.label} · 최근 2주`;
   try {
-    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
-    const json = await res.json();
+    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
     if (chartA) { chartA.destroy(); chartA = null; }
     if (json.success && json.data?.length) {
       const top = json.data;
@@ -463,8 +488,7 @@ async function loadCharts() {
     }
   } catch(e) {}
   try {
-    const res = await fetch(`${SERVER}/api/trend?item=${encodeURIComponent(state.item)}&market=${mktCd}&days=14`);
-    const json = await res.json();
+    const json = await cachedFetch(`${SERVER}/api/trend?item=${encodeURIComponent(state.item)}&market=${mktCd}&days=14`);
     if (chartB) { chartB.destroy(); chartB = null; }
     if (json.success && json.data?.length) {
       chartB = new Chart(document.getElementById('chartB'), {
@@ -496,8 +520,7 @@ async function loadNation() {
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const vrty = document.getElementById('vrtySelect').value;
   try {
-    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);
-    const json = await res.json();
+    const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);
     // 구분 드롭다운 채우기(품목 바뀔 때마다 옵션이 달라짐)
     const sel = document.getElementById('vrtySelect');
     const cur = sel.value;
@@ -509,11 +532,12 @@ async function loadNation() {
       el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.</div>`;
       return;
     }
+    const unit = getUnitMultiplier('Nation');
     el.innerHTML = json.data.map((d,i) => `
       <div class="rrow${i===0?' top':''}">
         <div class="rank">${i+1}</div>
         <div class="m">${d.market}${d.count < 15 ? '<span class="lowsample">표본적음</span>' : ''}</div>
-        <div class="p">₩${d.avgPricePerKg.toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;">/kg</span></div>
+        <div class="p">₩${Math.round(d.avgPricePerKg*unit.mult).toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;">${unit.suffix}</span></div>
         <div class="c">${d.count}건</div>
       </div>
     `).join('') + '<div style="font-size:11px;color:var(--faint);text-align:center;padding:10px 8px 4px;">표본적음 = 거래 15건 미만, 참고만 하세요</div>';
