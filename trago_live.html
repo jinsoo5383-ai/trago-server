@@ -338,7 +338,7 @@ button:hover { opacity: 0.85; }
 </div>
 
 <script>
-const SERVER = 'https://trago-server-production.up.railway.app';
+const SERVER = 'https://fruitbro-production.up.railway.app';
 let tradeChart, priceChart;
 let priceData = [];
 
@@ -788,8 +788,8 @@ async function loadGarak() {
         <td style="padding:9px 12px;text-align:right;color:#73726c;font-size:12px;">${prevPrice}</td>
         <td style="padding:9px 12px;text-align:right;font-weight:500;color:${bColor};">${d.A_B ? bArrow+' '+Math.abs(chgB)+'%' : '—'}</td>
         <td style="padding:9px 12px;text-align:right;color:${cColor};">${d.A_C ? cArrow+' '+Math.abs(chgC)+'%' : '—'}</td>
-        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#2c2c2a;">${thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A] ? '₩'+thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A].toLocaleString() : '—'}</td>
-        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">${lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A] ? '₩'+lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A].toLocaleString() : '—'}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#2c2c2a;">${thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A+'||'+d.U_NAME?.trim()] ? '₩'+thisWeek[d.PUM_NM_A+'||'+d.G_NAME_A+'||'+d.U_NAME?.trim()].toLocaleString() : '—'}</td>
+        <td style="padding:9px 12px;text-align:right;font-size:12px;color:#73726c;">${lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A+'||'+d.U_NAME?.trim()] ? '₩'+lastWeek[d.PUM_NM_A+'||'+d.G_NAME_A+'||'+d.U_NAME?.trim()].toLocaleString() : '—'}</td>
         <td style="padding:9px 12px;font-size:11px;color:#73726c;line-height:1.6;">${getOrigin(d.PUM_NM_A||'')}</td>
         <td style="padding:9px 12px;">${miniBar}</td>
       </tr>`;

@@ -172,7 +172,7 @@ app.get('/api/garak/history', async (req, res) => {
         timeout: 5000
       });
       const items = response.data?.resultData || [];
-      const found = items.find(x => (x.PUM_NM_A||'').includes(item) && (x.PUM_NM_A||'').includes('수입') && x.G_NAME_A === grade);
+      const found = items.find(x => (x.PUM_NM_A||'').includes(item) && (x.PUM_NM_A||'').includes('수입') && x.G_NAME_A === grade && (x.U_NAME||'').includes('13'));
       if (found && found.AV_P_A > 0) {
         results.push({ date: p_ymd, price: found.AV_P_A, unit: found.U_NAME?.trim() });
       }
@@ -274,7 +274,8 @@ app.get('/api/garak/weekly', async (req, res) => {
     const results = await Promise.all(allDays);
     const grouped = {};
     results.flat().forEach(d => {
-      const key = d.PUM_NM_A + '||' + d.G_NAME_A;
+      // 품목+등급만으로 묶으면 13키로/16키로 등 다른 단위 박스가 섞여서 평균이 왜곡됨 → 단위(U_NAME)까지 키에 포함
+      const key = d.PUM_NM_A + '||' + d.G_NAME_A + '||' + (d.U_NAME||'').trim();
       if (!grouped[key]) grouped[key] = { prices: [] };
       if (d.AV_P_A > 0) grouped[key].prices.push(d.AV_P_A);
     });
