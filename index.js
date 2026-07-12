@@ -510,6 +510,44 @@ app.get('/api/trades', async (req, res) => {
   }
 });
 
+// ── 시장별 가격 추이 (가락 외 타 시장도 트렌드 조회, 물량가중 일별평균) ──
+app.get('/api/trend', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const marketCd = req.query.market || '110001';
+  const days = parseInt(req.query.days) || 14;
+  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
+  if (!mclsfCd) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
+  const results = [];
+  for (let i = days; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    if (d.getDay() === 0) continue; // 일요일 휴장
+    const dateStr = d.toISOString().slice(0,10);
+    try {
+      const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
+        params: {
+          serviceKey: API_KEY, numOfRows: 500, pageNo: 1, returnType: 'json',
+          'cond[trd_clcln_ymd::EQ]': dateStr,
+          'cond[gds_lclsf_cd::EQ]': '06',
+          'cond[gds_mclsf_cd::EQ]': mclsfCd,
+          'cond[whsl_mrkt_cd::EQ]': marketCd
+        }
+      });
+      const items = response.data?.response?.body?.items?.item || [];
+      const arr = Array.isArray(items) ? items : [items];
+      const rows = arr.map(x => {
+        const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1, qty = parseFloat(x.qty) || 1;
+        return { pricePerKg: price/unitQty, weight: unitQty*qty };
+      }).filter(r => r.pricePerKg > 0);
+      if (rows.length >= 3) {
+        const totalWeight = rows.reduce((a,r)=>a+r.weight, 0);
+        const avg = Math.round(rows.reduce((a,r)=>a+r.pricePerKg*r.weight, 0)/totalWeight);
+        results.push({ date: dateStr, price: avg });
+      }
+    } catch(e) { /* 날짜 스킵 */ }
+  }
+  res.json({ success: true, item, marketCd, count: results.length, data: results });
+});
+
 // ── Trago 모바일 앱 ──
 app.get('/app', (req, res) => {
   res.sendFile(__dirname + '/trago-app.html');
@@ -547,7 +585,8 @@ app.get('/api/nationwide', async (req, res) => {
       if (!grouped[marketNm]) grouped[marketNm] = { market: marketNm, rows: [] };
       grouped[marketNm].rows.push({ pricePerKg, weight });
     });
-    const result = Object.values(grouped).map(g => {
+    const MIN_TRADES = 5; // 거래건수가 너무 적으면(1~2건) 평균이 왜곡되므로 제외
+    const result = Object.values(grouped).filter(g => g.rows.length >= MIN_TRADES).map(g => {
       const totalWeight = g.rows.reduce((a,r)=>a+r.weight, 0);
       return {
         market: g.market,
