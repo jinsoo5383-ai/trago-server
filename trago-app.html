@@ -113,6 +113,10 @@ main { flex:1; padding:12px 12px 84px; }
 .rrow .p { font-size:15px; font-weight:800; }
 .rrow.top .p { color:var(--green); }
 .rrow .c { font-size:11px; color:var(--faint); width:44px; text-align:right; }
+.lowsample {
+  display:inline-block; font-size:9.5px; font-weight:700; color:#A2722C;
+  background:#F5E9D3; padding:1px 6px; border-radius:8px; margin-left:6px; vertical-align:middle;
+}
 /* 브로커 */
 .bcard {
   background:var(--card); border:1px solid var(--line); border-radius:16px;
@@ -508,11 +512,11 @@ async function loadNation() {
     el.innerHTML = json.data.map((d,i) => `
       <div class="rrow${i===0?' top':''}">
         <div class="rank">${i+1}</div>
-        <div class="m">${d.market}</div>
+        <div class="m">${d.market}${d.count < 15 ? '<span class="lowsample">표본적음</span>' : ''}</div>
         <div class="p">₩${d.avgPricePerKg.toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;">/kg</span></div>
         <div class="c">${d.count}건</div>
       </div>
-    `).join('');
+    `).join('') + '<div style="font-size:11px;color:var(--faint);text-align:center;padding:10px 8px 4px;">표본적음 = 거래 15건 미만, 참고만 하세요</div>';
   } catch(e) {
     el.innerHTML = '<div class="notice">불러오기 실패</div>';
   }

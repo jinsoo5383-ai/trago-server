@@ -429,6 +429,11 @@ function isDomesticOrigin(plorNm) {
   if (/[시군구읍면동리]/.test(s)) return true;
   return false;
 }
+// 바나나/망고/파인애플/아보카도/레몬은 한국 기후상 상업재배 자체가 불가능 → 100% 수입.
+// 이 품목들의 plor_nm에 한국 지명이 찍히는 건 "후숙장/처리장 위치"일 뿐 국산이라는 뜻이 아니므로 필터 대상에서 제외.
+// 포도/블루베리/키위/체리는 국내 재배가 실제로 있어서 필터가 필요함.
+const DOMESTIC_GROWABLE = ['포도', '블루베리', '키위', '체리'];
+function shouldFilterDomestic(item) { return DOMESTIC_GROWABLE.includes(item); }
 
 // ── 특정 시장 전품목 시세 (인천남촌 등 개별 시장 상세 조회용) ──
 app.get('/api/market', async (req, res) => {
@@ -450,7 +455,8 @@ app.get('/api/market', async (req, res) => {
           }
         });
         const items = response.data?.response?.body?.items?.item || [];
-        const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
+        let arr = Array.isArray(items) ? items : [items];
+        if (shouldFilterDomestic(name)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
         const rows = arr.map(d => ({ price: parseFloat(d.scsbd_prc), qty: parseFloat(d.qty) || 1 })).filter(r => r.price > 0);
         if (rows.length) {
           const totalQty = rows.reduce((a,r)=>a+r.qty, 0);
@@ -488,7 +494,8 @@ app.get('/api/trades', async (req, res) => {
     if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
     const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
     const items = response.data?.response?.body?.items?.item || [];
-    const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
+    let arr = Array.isArray(items) ? items : [items];
+    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
     const grouped = {};
     arr.forEach(d => {
       const price = parseFloat(d.scsbd_prc);
@@ -543,7 +550,8 @@ app.get('/api/trend', async (req, res) => {
         }
       });
       const items = response.data?.response?.body?.items?.item || [];
-      const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
+      let arr = Array.isArray(items) ? items : [items];
+    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
       const rows = arr.map(x => {
         const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1, qty = parseFloat(x.qty) || 1;
         return { pricePerKg: price/unitQty, weight: unitQty*qty };
@@ -581,7 +589,8 @@ app.get('/api/nationwide', async (req, res) => {
       }
     });
     const items = response.data?.response?.body?.items?.item || [];
-    const arr = (Array.isArray(items) ? items : [items]).filter(d => !isDomesticOrigin(d.plor_nm));
+    let arr = Array.isArray(items) ? items : [items];
+    if (shouldFilterDomestic(item)) arr = arr.filter(d => !isDomesticOrigin(d.plor_nm));
     const vrtyOptions = [...new Set(arr.map(d => d.corp_gds_vrty_nm).filter(Boolean))];
     const vrtyFilter = req.query.vrty || '';
     const filtered = vrtyFilter ? arr.filter(d => d.corp_gds_vrty_nm === vrtyFilter) : arr;
