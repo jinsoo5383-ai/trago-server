@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trago — 수입과일 실시간 시세</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --ink:#1F241F; --sub:#6E6B60; --faint:#A2A094;
+  --paper:#F6F5F0; --card:#FFFFFF; --line:#E7E4DB;
+  --green:#157A5B; --green-soft:#E3F2EB;
+  --red:#C43D2B; --blue:#2456A6;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; }
+body {
+  font-family:'Pretendard Variable', Pretendard, -apple-system, sans-serif;
+  background:#E9E7DF; color:var(--ink);
+}
+#phone {
+  max-width:480px; margin:0 auto; min-height:100dvh;
+  background:var(--paper); position:relative;
+  display:flex; flex-direction:column;
+}
+/* ── 상단 고정 영역 ── */
+#top {
+  position:sticky; top:0; z-index:50; background:var(--paper);
+  border-bottom:1px solid var(--line);
+}
+#brand {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px 8px;
+}
+#brand .logo { font-size:20px; font-weight:800; letter-spacing:-0.5px; color:var(--green); }
+#brand .logo span { color:var(--ink); font-weight:600; font-size:12px; margin-left:6px; letter-spacing:0; }
+#brand .live {
+  font-size:11px; font-weight:600; color:var(--green);
+  background:var(--green-soft); padding:3px 10px; border-radius:20px;
+}
+#datenav {
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:4px 16px 10px;
+}
+#datenav button {
+  width:36px; height:36px; border:none; background:none; cursor:pointer;
+  font-size:18px; color:var(--green); font-weight:700; border-radius:10px;
+}
+#datenav button:active { background:var(--green-soft); }
+#datenav .d {
+  font-size:17px; font-weight:800; letter-spacing:-0.3px; min-width:140px; text-align:center;
+}
+#chips {
+  display:flex; gap:6px; overflow-x:auto; padding:0 16px 12px;
+  scrollbar-width:none;
+}
+#chips::-webkit-scrollbar { display:none; }
+.chip {
+  flex:0 0 auto; height:32px; padding:0 14px; border-radius:20px;
+  border:1px solid var(--line); background:var(--card); color:var(--sub);
+  font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;
+}
+.chip.on { background:var(--green); border-color:var(--green); color:#fff; }
+/* ── 콘텐츠 ── */
+main { flex:1; padding:12px 12px 84px; }
+.tabpane { display:none; }
+.tabpane.on { display:block; }
+.notice {
+  text-align:center; color:var(--sub); font-size:13px; padding:36px 20px; line-height:1.6;
+}
+/* 실거래 카드 */
+.trow {
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:12px 14px; margin-bottom:8px;
+  display:grid; grid-template-columns:1fr auto; gap:4px 12px; align-items:center;
+}
+.trow .name { font-size:15px; font-weight:800; letter-spacing:-0.3px; }
+.trow .meta { font-size:12px; color:var(--sub); margin-top:3px; line-height:1.5; }
+.trow .meta b { color:var(--ink); font-weight:700; font-size:13px; }
+.trow .mkt {
+  display:inline-block; font-size:11px; font-weight:600; color:var(--green);
+  background:var(--green-soft); padding:1px 7px; border-radius:10px; margin-bottom:4px;
+}
+.prices { text-align:right; font-variant-numeric:tabular-nums; }
+.prices .avg { font-size:18px; font-weight:800; letter-spacing:-0.5px; }
+.prices .mx { font-size:12.5px; font-weight:600; color:var(--red); margin-top:2px; }
+.prices .mn { font-size:12.5px; font-weight:600; color:var(--blue); margin-top:1px; }
+.prices .lbl { font-size:10px; color:var(--faint); font-weight:500; margin-right:4px; }
+/* 시장 필터 */
+#mktfilter {
+  width:100%; height:40px; border:1px solid var(--line); border-radius:12px;
+  background:var(--card); padding:0 12px; font-size:13px; font-family:inherit;
+  color:var(--ink); margin-bottom:10px; outline:none;
+}
+/* 차트 카드 */
+.ccard {
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:16px 14px; margin-bottom:12px;
+}
+.ccard h3 { font-size:14px; font-weight:800; letter-spacing:-0.2px; }
+.ccard .sub { font-size:11.5px; color:var(--sub); margin:2px 0 12px; }
+.chartwrap { position:relative; width:100%; }
+/* 전국 랭킹 */
+.rrow {
+  display:flex; align-items:center; gap:12px;
+  background:var(--card); border:1px solid var(--line); border-radius:12px;
+  padding:11px 14px; margin-bottom:6px; font-variant-numeric:tabular-nums;
+}
+.rrow .rank { width:22px; font-size:13px; font-weight:800; color:var(--faint); }
+.rrow.top .rank { color:var(--green); }
+.rrow .m { flex:1; font-size:14px; font-weight:700; }
+.rrow .p { font-size:15px; font-weight:800; }
+.rrow.top .p { color:var(--green); }
+.rrow .c { font-size:11px; color:var(--faint); width:44px; text-align:right; }
+/* 브로커 */
+.bcard {
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  padding:18px 16px; margin-bottom:12px;
+}
+.bcard h3 { font-size:16px; font-weight:800; letter-spacing:-0.3px; }
+.bcard .tag { font-size:11px; color:var(--green); background:var(--green-soft); padding:2px 8px; border-radius:10px; font-weight:600; }
+.bcard p { font-size:13px; color:var(--sub); line-height:1.65; margin-top:8px; }
+.bcard a.btn, .bcard button.btn {
+  display:block; width:100%; margin-top:12px; height:44px; line-height:44px;
+  background:var(--green); color:#fff; border:none; border-radius:12px;
+  font-size:14px; font-weight:700; text-align:center; text-decoration:none;
+  cursor:pointer; font-family:inherit;
+}
+.bcard button.btn.ghost { background:var(--card); color:var(--green); border:1.5px solid var(--green); line-height:41px; }
+.steps { display:flex; gap:8px; margin-top:14px; }
+.steps div {
+  flex:1; background:var(--paper); border-radius:12px; padding:12px 8px;
+  text-align:center; font-size:11.5px; font-weight:600; color:var(--sub); line-height:1.5;
+}
+.steps div b { display:block; font-size:18px; margin-bottom:4px; }
+/* ── 하단 탭바 ── */
+#tabbar {
+  position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+  width:100%; max-width:480px; z-index:60;
+  background:rgba(255,255,255,0.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--line);
+  display:flex; padding-bottom:env(safe-area-inset-bottom);
+}
+#tabbar button {
+  flex:1; border:none; background:none; padding:9px 0 8px; cursor:pointer;
+  font-family:inherit; font-size:10.5px; font-weight:600; color:var(--faint);
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+}
+#tabbar button svg { width:22px; height:22px; stroke:var(--faint); fill:none; stroke-width:1.8; }
+#tabbar button.on { color:var(--green); }
+#tabbar button.on svg { stroke:var(--green); }
+.skel { background:linear-gradient(90deg,#EEECE4 25%,#F6F5F0 50%,#EEECE4 75%); background-size:200% 100%; animation:sk 1.2s infinite; border-radius:14px; height:74px; margin-bottom:8px; }
+@keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+</style>
+</head>
+<body>
+<div id="phone">
+
+  <div id="top">
+    <div id="brand">
+      <div class="logo">Trago<span>수입과일 실시간 시세</span></div>
+      <div class="live">● LIVE</div>
+    </div>
+    <div id="datenav">
+      <button onclick="shiftDate(-1)" aria-label="이전 날짜">‹</button>
+      <div class="d" id="dateLabel">—</div>
+      <button onclick="shiftDate(1)" aria-label="다음 날짜">›</button>
+    </div>
+    <div id="chips"></div>
+  </div>
+
+  <main>
+    <!-- 실거래 -->
+    <section class="tabpane on" id="pane-trades">
+      <select id="mktfilter" onchange="loadTrades()">
+        <option value="">시장 전체</option>
+        <option value="110001">서울가락</option>
+        <option value="110008">서울강서</option>
+        <option value="230001">인천남촌</option>
+        <option value="311201">구리</option>
+        <option value="210001">부산엄궁</option>
+        <option value="210009">부산반여</option>
+        <option value="220001">대구북부</option>
+        <option value="240001">광주각화</option>
+        <option value="250001">대전오정</option>
+      </select>
+      <div id="tradesList"></div>
+    </section>
+
+    <!-- 차트 -->
+    <section class="tabpane" id="pane-chart">
+      <div class="ccard">
+        <h3 id="chartATitle">시장별 평균가</h3>
+        <div class="sub">kg당 단가 기준 · 저렴한 순</div>
+        <div class="chartwrap" style="height:300px;"><canvas id="chartA"></canvas></div>
+      </div>
+      <div class="ccard">
+        <h3 id="chartBTitle">가락시장 가격 추이</h3>
+        <div class="sub">13kg 상자 · 상 등급 · 최근 2주</div>
+        <div class="chartwrap" style="height:220px;"><canvas id="chartB"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 전국 -->
+    <section class="tabpane" id="pane-nation">
+      <div id="nationList"></div>
+    </section>
+
+    <!-- 브로커 -->
+    <section class="tabpane" id="pane-broker">
+      <div class="bcard">
+        <h3>과일브로 <span class="tag">Beta</span></h3>
+        <p>수산물 시세를 투명하게 공개해 소비자와 판매자를 연결한 사례처럼, Trago는 전국 도매시장 경락가를 그대로 공개하고 믿을 수 있는 중도매인과 직접 연결합니다.</p>
+        <div class="steps">
+          <div><b>①</b>시세 확인</div>
+          <div><b>②</b>브로커 선택</div>
+          <div><b>③</b>직거래 문의</div>
+        </div>
+      </div>
+      <div class="bcard">
+        <h3>화신유통 <span class="tag">구리시장</span></h3>
+        <p>구리 농수산물도매시장 중도매인. 구리시장 전품목 경락가 실시간 연동 프로필을 확인해보세요.</p>
+        <a class="btn" href="/broker/hwashin">프로필 보기</a>
+      </div>
+      <div class="bcard">
+        <h3>중도매인이신가요?</h3>
+        <p>내 취급 품목 시세가 자동으로 연동되는 프로필 페이지를 만들어드립니다. 소매상·바이어가 시세를 보고 바로 연락할 수 있어요.</p>
+        <button class="btn ghost" onclick="alert('입점 문의: 과일브로 팀에 연락주세요 (준비중)')">입점 문의하기</button>
+      </div>
+    </section>
+  </main>
+
+  <nav id="tabbar">
+    <button class="on" data-pane="trades" onclick="goTab('trades')">
+      <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 6-8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 21h18" stroke-linecap="round"/></svg>
+      실거래
+    </button>
+    <button data-pane="chart" onclick="goTab('chart')">
+      <svg viewBox="0 0 24 24"><rect x="4" y="12" width="4" height="8" rx="1"/><rect x="10" y="6" width="4" height="14" rx="1"/><rect x="16" y="9" width="4" height="11" rx="1"/></svg>
+      차트
+    </button>
+    <button data-pane="nation" onclick="goTab('nation')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>
+      전국
+    </button>
+    <button data-pane="broker" onclick="goTab('broker')">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5" stroke-linecap="round"/><path d="M16 8h5M18.5 5.5v5" stroke-linecap="round"/></svg>
+      브로커
+    </button>
+  </nav>
+</div>
+
+<script>
+const SERVER = '';
+const ITEMS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도'];
+const state = { date: new Date(), item: '바나나', tab: 'trades' };
+let chartA = null, chartB = null;
+
+// ── 날짜 ──
+function ymd(d) { const k = new Date(d.getTime() + 9*3600*1000 - d.getTimezoneOffset()*-60000); return d.toLocaleDateString('sv-SE'); }
+function dateStr() { return state.date.toLocaleDateString('sv-SE'); }
+function renderDate() {
+  const days = ['일','월','화','수','목','금','토'];
+  const d = state.date;
+  document.getElementById('dateLabel').textContent = `${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+}
+function shiftDate(n) {
+  const next = new Date(state.date); next.setDate(next.getDate() + n);
+  if (next > new Date()) return;
+  state.date = next; renderDate(); refresh();
+}
+
+// ── 품목 칩 ──
+function renderChips() {
+  document.getElementById('chips').innerHTML = ITEMS.map(i =>
+    `<button class="chip${i===state.item?' on':''}" onclick="pickItem('${i}')">${i}</button>`
+  ).join('');
+}
+function pickItem(i) { state.item = i; renderChips(); refresh(); }
+
+// ── 탭 ──
+function goTab(t) {
+  state.tab = t;
+  document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
+  document.getElementById('pane-'+t).classList.add('on');
+  document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.pane===t));
+  refresh();
+}
+function refresh() {
+  if (state.tab === 'trades') loadTrades();
+  else if (state.tab === 'chart') loadCharts();
+  else if (state.tab === 'nation') loadNation();
+}
+
+// ── 실거래 ──
+async function loadTrades() {
+  const el = document.getElementById('tradesList');
+  el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  const mkt = document.getElementById('mktfilter').value;
+  try {
+    const res = await fetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}${mkt?'&market='+mkt:''}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) {
+      el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.<br>휴장일(일요일)이거나 아직 경매 전일 수 있어요.</div>`;
+      return;
+    }
+    el.innerHTML = json.data.map(d => `
+      <div class="trow">
+        <div>
+          <span class="mkt">${d.market}</span>
+          <div class="name">${d.vrty}</div>
+          <div class="meta">${d.corp}<br><b>${d.count.toLocaleString()}개</b> · ${d.spec}</div>
+        </div>
+        <div class="prices">
+          <div class="avg">${d.avg.toLocaleString()}원</div>
+          <div class="mx"><span class="lbl">최대</span>${d.max.toLocaleString()}원</div>
+          <div class="mn"><span class="lbl">최소</span>${d.min.toLocaleString()}원</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="notice">불러오기 실패. 잠시 후 다시 시도해주세요.</div>';
+  }
+}
+
+// ── 차트 ──
+async function loadCharts() {
+  document.getElementById('chartATitle').textContent = `${state.item} 시장별 평균가`;
+  document.getElementById('chartBTitle').textContent = `가락시장 ${state.item} 가격 추이`;
+  try {
+    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
+    const json = await res.json();
+    if (chartA) { chartA.destroy(); chartA = null; }
+    if (json.success && json.data?.length) {
+      const top = json.data.slice(0, 12);
+      chartA = new Chart(document.getElementById('chartA'), {
+        type: 'bar',
+        data: {
+          labels: top.map(d => d.market),
+          datasets: [{ data: top.map(d => d.avgPricePerKg),
+            backgroundColor: top.map((_,i) => i===0 ? '#157A5B' : '#C9DED4'),
+            borderRadius: 6, barThickness: 14 }]
+        },
+        options: {
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => ` ₩${c.raw.toLocaleString()}/kg` } } },
+          scales: {
+            x: { grid: { color:'#F0EEE6' }, ticks: { font:{size:10}, callback: v => '₩'+v.toLocaleString() } },
+            y: { grid: { display:false }, ticks: { font:{size:11, weight:600} } }
+          }
+        }
+      });
+    }
+  } catch(e) {}
+  try {
+    const res = await fetch(`${SERVER}/api/garak/history?item=${encodeURIComponent(state.item)}&grade=상&days=14`);
+    const json = await res.json();
+    if (chartB) { chartB.destroy(); chartB = null; }
+    if (json.success && json.data?.length) {
+      chartB = new Chart(document.getElementById('chartB'), {
+        type: 'line',
+        data: {
+          labels: json.data.map(d => d.date.slice(4,6)+'/'+d.date.slice(6,8)),
+          datasets: [{ data: json.data.map(d => d.price),
+            borderColor:'#157A5B', backgroundColor:'rgba(21,122,91,0.08)',
+            fill:true, tension:0.3, pointRadius:3, pointBackgroundColor:'#157A5B', borderWidth:2 }]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false,
+          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c => ` ₩${c.raw.toLocaleString()}` } } },
+          scales: {
+            x: { grid:{display:false}, ticks:{font:{size:10}} },
+            y: { grid:{color:'#F0EEE6'}, ticks:{font:{size:10}, callback: v => '₩'+v.toLocaleString()} }
+          }
+        }
+      });
+    }
+  } catch(e) {}
+}
+
+// ── 전국 ──
+async function loadNation() {
+  const el = document.getElementById('nationList');
+  el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  try {
+    const res = await fetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}`);
+    const json = await res.json();
+    if (!json.success || !json.data?.length) {
+      el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.</div>`;
+      return;
+    }
+    el.innerHTML = json.data.map((d,i) => `
+      <div class="rrow${i===0?' top':''}">
+        <div class="rank">${i+1}</div>
+        <div class="m">${d.market}</div>
+        <div class="p">₩${d.avgPricePerKg.toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;">/kg</span></div>
+        <div class="c">${d.count}건</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="notice">불러오기 실패</div>';
+  }
+}
+
+// ── 초기화 ──
+renderDate(); renderChips(); loadTrades();
+</script>
+</body>
+</html>

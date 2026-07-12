@@ -457,6 +457,59 @@ app.get('/api/market', async (req, res) => {
   }
 });
 
+// ── 법인별 실거래 요약 (모바일 앱용: 품목→법인/규격별 평균·최대·최소) ──
+app.get('/api/trades', async (req, res) => {
+  const kst = new Date(new Date().getTime() + 9*60*60*1000);
+  const date = req.query.date || kst.toISOString().slice(0,10);
+  const item = req.query.item || '바나나';
+  const marketCd = req.query.market || '';
+  const mclsfCd = NATIONWIDE_FRUIT_CODES[item];
+  if (!mclsfCd) {
+    return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(NATIONWIDE_FRUIT_CODES).join(', ')}` });
+  }
+  try {
+    const params = {
+      serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
+      'cond[trd_clcln_ymd::EQ]': date,
+      'cond[gds_lclsf_cd::EQ]': '06',
+      'cond[gds_mclsf_cd::EQ]': mclsfCd
+    };
+    if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
+    const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
+    const items = response.data?.response?.body?.items?.item || [];
+    const arr = Array.isArray(items) ? items : [items];
+    const grouped = {};
+    arr.forEach(d => {
+      const price = parseFloat(d.scsbd_prc);
+      if (!price) return;
+      const spec = `${parseFloat(d.unit_qty) || ''}${d.unit_nm || ''} ${d.pkg_nm || ''}`.trim();
+      const key = d.corp_nm + '||' + spec + '||' + (d.corp_gds_vrty_nm || '');
+      if (!grouped[key]) grouped[key] = {
+        corp: d.corp_nm,
+        market: NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm,
+        vrty: d.corp_gds_vrty_nm || item, spec, count: 0, prices: []
+      };
+      grouped[key].count += parseFloat(d.qty) || 0;
+      grouped[key].prices.push(price);
+    });
+    const data = Object.values(grouped).map(g => ({
+      corp: g.corp, market: g.market, vrty: g.vrty, spec: g.spec,
+      count: Math.round(g.count),
+      avg: Math.round(g.prices.reduce((a,b)=>a+b,0)/g.prices.length),
+      max: Math.round(Math.max(...g.prices)),
+      min: Math.round(Math.min(...g.prices))
+    })).sort((a,b) => b.count - a.count);
+    res.json({ success: true, item, date, totalCount: response.data?.response?.body?.totalCount || 0, data });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ── Trago 모바일 앱 ──
+app.get('/app', (req, res) => {
+  res.sendFile(__dirname + '/trago-app.html');
+});
+
 app.get('/api/nationwide', async (req, res) => {
   const kst = new Date(new Date().getTime() + 9*60*60*1000);
   const today = req.query.date || kst.toISOString().slice(0,10);
