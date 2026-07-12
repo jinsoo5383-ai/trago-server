@@ -309,6 +309,15 @@ main { flex:1; padding:12px 12px 84px; }
         <div class="sub" id="volSub">전국 경락 물량 · 일별 톤 · 최근 3주</div>
         <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartVol"></canvas></div>
       </div>
+      <div class="ccard">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <h3 id="fcTitle">가격 예측</h3>
+          <span style="font-size:10px;background:#F5E9D3;color:#A2722C;padding:2px 7px;border-radius:8px;font-weight:700;">BETA</span>
+        </div>
+        <div class="sub">최근 4주 데이터 기반 통계 추정 · kg당 · 80% 예상범위</div>
+        <div id="fcBody" style="margin-top:12px;"></div>
+        <div id="fcCaveat" style="font-size:11px;color:var(--faint);line-height:1.55;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);"></div>
+      </div>
       <div class="ccard" id="importVolCard" style="display:none;">
         <h3 id="impVolTitle">월별 수입물량</h3>
         <div class="sub">관세청 통관 실적 · 톤 · 최근 6개월</div>
@@ -577,6 +586,9 @@ async function loadStats() {
   const cmpEl = document.getElementById('cmpCards');
   document.getElementById('cmpTitle').textContent = `${state.item} 주간 가격 비교`;
   document.getElementById('volTitle').textContent = `${state.item} 물량 추이`;
+  document.getElementById('fcTitle').textContent = `${state.item} 가격 예측`;
+  document.getElementById('fcBody').innerHTML = '<div class="skel" style="height:180px;"></div>';
+  document.getElementById('fcCaveat').textContent = '';
   document.getElementById('volSub').textContent = state.origin === 'domestic'
     ? '전국 도매시장 출하물량(경락 기준) · 일별 톤 · 최근 3주'
     : '전국 도매시장 유통물량(경락 기준) · 일별 톤 · 최근 3주';
@@ -622,6 +634,36 @@ async function loadStats() {
     }
   } catch(e) {
     cmpEl.innerHTML = '<div class="notice" style="flex:1;">불러오기 실패</div>';
+  }
+  // 가격 예측
+  try {
+    const fj = await cachedFetch(`${SERVER}/api/forecast?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    const fcBody = document.getElementById('fcBody');
+    if (!fj.success) {
+      fcBody.innerHTML = `<div class="notice" style="padding:16px;">${fj.error || '예측 불가'}</div>`;
+    } else {
+      const confColor = { '높음':'#157A5B', '보통':'#A2722C', '낮음':'#B0685A', '매우 낮음':'#A2A094' };
+      const confBg = { '높음':'#E1F5EE', '보통':'#F5E9D3', '낮음':'#F6E3DE', '매우 낮음':'#EEEDE6' };
+      const chgOf = p => Math.round((p - fj.lastPrice) / fj.lastPrice * 1000) / 10;
+      fcBody.innerHTML = `
+        <div style="font-size:12px;color:var(--sub);margin-bottom:10px;">현재가 <b style="color:var(--ink);font-size:14px;">₩${fj.lastPrice.toLocaleString()}/kg</b> (${fj.lastDate}) · 일변동성 ${fj.dailyVolatilityPct}%</div>
+        ${fj.forecasts.map(f => {
+          const chg = chgOf(f.price);
+          return `
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:0.5px solid #f1efe8;font-variant-numeric:tabular-nums;">
+            <div style="width:60px;font-size:12.5px;font-weight:700;">${f.label}</div>
+            <div style="flex:1;">
+              <span style="font-size:14px;font-weight:800;">₩${f.price.toLocaleString()}</span>
+              <span style="font-size:11px;font-weight:600;margin-left:4px;color:${chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--blue)' : 'var(--faint)'};">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${Math.abs(chg)}%</span>
+              <div style="font-size:10.5px;color:var(--faint);">범위 ₩${f.low.toLocaleString()} ~ ₩${f.high.toLocaleString()}</div>
+            </div>
+            <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;color:${confColor[f.confidence]};background:${confBg[f.confidence]};">${f.confidence}</span>
+          </div>`;
+        }).join('')}`;
+      document.getElementById('fcCaveat').textContent = '⚠ ' + fj.caveat;
+    }
+  } catch(e) {
+    document.getElementById('fcBody').innerHTML = '<div class="notice" style="padding:16px;">예측 불러오기 실패</div>';
   }
   // 수입과일이면 관세청 월별 수입물량도 표시
   const impCard = document.getElementById('importVolCard');

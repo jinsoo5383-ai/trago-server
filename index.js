@@ -611,6 +611,39 @@ async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 2) {
   return all;
 }
 
+// 일별 시리즈(물량·가중평균가) 계산 - stats와 forecast에서 공용
+async function computeDailySeries(fc, item, origin, days) {
+  const dates = [];
+  for (let i = days; i >= 0; i--) {
+    const d = new Date(Date.now() + 9*3600*1000); d.setUTCDate(d.getUTCDate() - i);
+    if (d.getUTCDay() === 0) continue; // 일요일 휴장
+    dates.push(d.toISOString().slice(0,10));
+  }
+  const series = [];
+  const CHUNK = 5;
+  for (let i = 0; i < dates.length; i += CHUNK) {
+    const batch = dates.slice(i, i + CHUNK);
+    const results = await Promise.all(batch.map(async date => {
+      try {
+        let arr = await fetchTradesDay(date, fc.l, fc.m);
+        arr = applyOriginFilter(arr, item, origin);
+        let totW = 0, totVal = 0, trades = 0;
+        arr.forEach(d => {
+          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
+          if (!price || !uq) return;
+          const w = uq * q;
+          totW += w; totVal += (price / uq) * w; trades++;
+        });
+        if (totW <= 0) return null;
+        return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
+      } catch (e) { return null; }
+    }));
+    results.forEach(r => { if (r) series.push(r); });
+  }
+  series.sort((a,b) => a.date.localeCompare(b.date));
+  return series;
+}
+
 // ── 기간별 통계: 일별 물량(톤) + 물량가중평균가 + 주간 비교 ──
 app.get('/api/stats', async (req, res) => {
   const item = req.query.item || '바나나';
@@ -618,35 +651,8 @@ app.get('/api/stats', async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 21, 31);
   const fc = FRUIT_CODES[item];
   if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
-  const dates = [];
-  for (let i = days; i >= 0; i--) {
-    const d = new Date(Date.now() + 9*3600*1000); d.setUTCDate(d.getUTCDate() - i);
-    if (d.getUTCDay() === 0) continue; // 일요일 휴장
-    dates.push(d.toISOString().slice(0,10));
-  }
   try {
-    const series = [];
-    const CHUNK = 5;
-    for (let i = 0; i < dates.length; i += CHUNK) {
-      const batch = dates.slice(i, i + CHUNK);
-      const results = await Promise.all(batch.map(async date => {
-        try {
-          let arr = await fetchTradesDay(date, fc.l, fc.m);
-          arr = applyOriginFilter(arr, item, origin);
-          let totW = 0, totVal = 0, trades = 0;
-          arr.forEach(d => {
-            const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
-            if (!price || !uq) return;
-            const w = uq * q;
-            totW += w; totVal += (price / uq) * w; trades++;
-          });
-          if (totW <= 0) return null;
-          return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
-        } catch (e) { return null; }
-      }));
-      results.forEach(r => { if (r) series.push(r); });
-    }
-    series.sort((a,b) => a.date.localeCompare(b.date));
+    const series = await computeDailySeries(fc, item, origin, days);
     // 주간 비교: 최근 7일 / 그 전 7일 / 그 전전 7일 (물량가중)
     const weekStat = (n) => {
       const end = new Date(Date.now() + 9*3600*1000); end.setUTCDate(end.getUTCDate() - n*7);
@@ -661,6 +667,66 @@ app.get('/api/stats', async (req, res) => {
     res.json({ success: true, item, origin,
       series,
       compare: { thisWeek: weekStat(0), lastWeek: weekStat(1), twoWeeksAgo: weekStat(2) }
+    });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ── 가격 예측 (베타): 최근 4주 시리즈 기반 추세외삽 + 평균회귀 혼합 ──
+// 방법론(정직하게): 단기(~1주)는 최근 선형추세, 장기로 갈수록 기간평균으로 회귀하는 혼합모델.
+// 변동성(일별 수익률 표준편차)으로 80% 예상범위를 계산하되, 장기는 범위가 무의미하게 커지므로 ±50%에서 캡.
+// 한계: 데이터가 최근 몇 주뿐이라 계절성·작황·환율·명절 수요를 반영하지 못함. 3달 이상은 방향성 참고용.
+app.get('/api/forecast', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const fc = FRUIT_CODES[item];
+  if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
+  try {
+    const series = await computeDailySeries(fc, item, origin, 28);
+    if (series.length < 8) {
+      return res.json({ success: false, error: '예측에 필요한 최소 데이터(8일)가 부족합니다.' });
+    }
+    const prices = series.map(r => r.avgPricePerKg);
+    const n = prices.length;
+    const last = prices[n-1];
+    const mean = prices.reduce((a,b)=>a+b,0) / n;
+    // 최근 데이터에 가중치를 둔 선형회귀 (기울기 = 하루당 가격변화)
+    let sw=0, swx=0, swy=0, swxy=0, swxx=0;
+    prices.forEach((y, x) => {
+      const w = Math.exp((x - n) / 7); // 최근일수록 가중
+      sw += w; swx += w*x; swy += w*y; swxy += w*x*y; swxx += w*x*x;
+    });
+    const slope = (sw*swxy - swx*swy) / (sw*swxx - swx*swx || 1);
+    // 일별 로그수익률 변동성
+    const rets = [];
+    for (let i = 1; i < n; i++) if (prices[i-1] > 0) rets.push(Math.log(prices[i]/prices[i-1]));
+    const retMean = rets.reduce((a,b)=>a+b,0) / (rets.length || 1);
+    const sigma = Math.sqrt(rets.reduce((a,b)=>a+(b-retMean)**2, 0) / (rets.length || 1));
+    // 예측 지평 (영업일 기준, 일요일 휴장 반영 주 6일)
+    const HORIZONS = [
+      { label: '내일', h: 1 }, { label: '1주 후', h: 6 }, { label: '2주 후', h: 12 },
+      { label: '3주 후', h: 18 }, { label: '1달 후', h: 26 }, { label: '3달 후', h: 78 },
+      { label: '6개월 후', h: 156 }, { label: '1년 후', h: 312 }
+    ];
+    const confidenceOf = h => h <= 1 ? '높음' : h <= 6 ? '보통' : h <= 26 ? '낮음' : '매우 낮음';
+    const Z = 1.28; // 80% 구간
+    const forecasts = HORIZONS.map(({label, h}) => {
+      const alpha = Math.exp(-h / 40); // 단기는 추세, 장기는 평균회귀
+      const trendPart = last + slope * h;
+      let price = alpha * trendPart + (1 - alpha) * mean;
+      price = Math.max(Math.round(price), 1);
+      let bandRatio = Math.min(Z * sigma * Math.sqrt(h), 0.5); // 장기 밴드는 ±50% 캡
+      const low = Math.max(Math.round(price * (1 - bandRatio)), 1);
+      const high = Math.round(price * (1 + bandRatio));
+      return { label, marketDays: h, price, low, high, confidence: confidenceOf(h) };
+    });
+    res.json({
+      success: true, item, origin,
+      lastDate: series[n-1].date, lastPrice: last,
+      dataDays: n, dailyVolatilityPct: Math.round(sigma * 1000) / 10,
+      forecasts,
+      caveat: '최근 4주 경락 데이터 기반 통계 추정입니다. 계절성·작황·환율·명절 수요는 반영되지 않으며, 특히 3달 이상 장기 예측은 방향성 참고용입니다.'
     });
   } catch (e) {
     res.json({ success: false, error: e.message });
