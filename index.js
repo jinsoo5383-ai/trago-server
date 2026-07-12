@@ -551,38 +551,120 @@ app.get('/api/trend', async (req, res) => {
   const item = req.query.item || '바나나';
   const marketCd = req.query.market || '110001';
   const days = parseInt(req.query.days) || 14;
+  const origin = req.query.origin || 'import';
   const fc = FRUIT_CODES[item];
   if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
-  const results = [];
+  const dates = [];
   for (let i = days; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    if (d.getDay() === 0) continue; // 일요일 휴장
-    const dateStr = d.toISOString().slice(0,10);
-    try {
-      const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
-        params: {
-          serviceKey: API_KEY, numOfRows: 500, pageNo: 1, returnType: 'json',
-          'cond[trd_clcln_ymd::EQ]': dateStr,
-          'cond[gds_lclsf_cd::EQ]': fc.l,
-          'cond[gds_mclsf_cd::EQ]': fc.m,
-          'cond[whsl_mrkt_cd::EQ]': marketCd
-        }
-      });
-      const items = response.data?.response?.body?.items?.item || [];
-      let arr = Array.isArray(items) ? items : [items];
-    arr = applyOriginFilter(arr, item, req.query.origin || 'import');
-      const rows = arr.map(x => {
-        const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1, qty = parseFloat(x.qty) || 1;
-        return { pricePerKg: price/unitQty, weight: unitQty*qty };
-      }).filter(r => r.pricePerKg > 0);
-      if (rows.length >= 3) {
-        const totalWeight = rows.reduce((a,r)=>a+r.weight, 0);
-        const avg = Math.round(rows.reduce((a,r)=>a+r.pricePerKg*r.weight, 0)/totalWeight);
-        results.push({ date: dateStr, price: avg });
-      }
-    } catch(e) { /* 날짜 스킵 */ }
+    const d = new Date(Date.now() + 9*60*60*1000); d.setUTCDate(d.getUTCDate() - i);
+    if (d.getUTCDay() === 0) continue; // 일요일 휴장
+    dates.push(d.toISOString().slice(0,10));
   }
+  const results = [];
+  const CHUNK = 5;
+  for (let i = 0; i < dates.length; i += CHUNK) {
+    const batch = dates.slice(i, i + CHUNK);
+    const chunkResults = await Promise.all(batch.map(async dateStr => {
+      try {
+        let arr = await fetchTradesDay(dateStr, fc.l, fc.m, marketCd, 1);
+        arr = applyOriginFilter(arr, item, origin);
+        const rows = arr.map(x => {
+          const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1;
+          const qty = parseFloat(x.qty) || 1;
+          return { pricePerKg: price/unitQty, weight: unitQty*qty };
+        }).filter(r => r.pricePerKg > 0);
+        if (rows.length >= 3) {
+          const totalWeight = rows.reduce((a,r)=>a+r.weight, 0);
+          const avg = Math.round(rows.reduce((a,r)=>a+r.pricePerKg*r.weight, 0)/totalWeight);
+          return { date: dateStr, price: avg };
+        }
+        return null;
+      } catch(e) { return null; }
+    }));
+    chunkResults.forEach(r => { if (r) results.push(r); });
+  }
+  results.sort((a,b) => a.date.localeCompare(b.date));
   res.json({ success: true, item, marketCd, count: results.length, data: results });
+});
+
+// ── 공용: 하루치 거래 데이터 fetch + 서버 캐싱 (과거 날짜는 불변이므로 영구 캐시 → API 호출 절약) ──
+const tradesDayCache = new Map();
+async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 2) {
+  const key = `${date}|${l}|${m}|${marketCd}`;
+  if (tradesDayCache.has(key)) return tradesDayCache.get(key);
+  let all = [];
+  for (let p = 1; p <= maxPages; p++) {
+    const params = {
+      serviceKey: API_KEY, numOfRows: 1000, pageNo: p, returnType: 'json',
+      'cond[trd_clcln_ymd::EQ]': date, 'cond[gds_lclsf_cd::EQ]': l, 'cond[gds_mclsf_cd::EQ]': m
+    };
+    if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
+    const r = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
+    const items = r.data?.response?.body?.items?.item || [];
+    const arr = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    all = all.concat(arr);
+    const total = parseInt(r.data?.response?.body?.totalCount || 0);
+    if (all.length >= total || arr.length < 1000) break;
+  }
+  const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  if (date < kstToday) tradesDayCache.set(key, all); // 오늘 데이터는 갱신되므로 캐시 안 함
+  return all;
+}
+
+// ── 기간별 통계: 일별 물량(톤) + 물량가중평균가 + 주간 비교 ──
+app.get('/api/stats', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const days = Math.min(parseInt(req.query.days) || 21, 31);
+  const fc = FRUIT_CODES[item];
+  if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
+  const dates = [];
+  for (let i = days; i >= 0; i--) {
+    const d = new Date(Date.now() + 9*3600*1000); d.setUTCDate(d.getUTCDate() - i);
+    if (d.getUTCDay() === 0) continue; // 일요일 휴장
+    dates.push(d.toISOString().slice(0,10));
+  }
+  try {
+    const series = [];
+    const CHUNK = 5;
+    for (let i = 0; i < dates.length; i += CHUNK) {
+      const batch = dates.slice(i, i + CHUNK);
+      const results = await Promise.all(batch.map(async date => {
+        try {
+          let arr = await fetchTradesDay(date, fc.l, fc.m);
+          arr = applyOriginFilter(arr, item, origin);
+          let totW = 0, totVal = 0, trades = 0;
+          arr.forEach(d => {
+            const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
+            if (!price || !uq) return;
+            const w = uq * q;
+            totW += w; totVal += (price / uq) * w; trades++;
+          });
+          if (totW <= 0) return null;
+          return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
+        } catch (e) { return null; }
+      }));
+      results.forEach(r => { if (r) series.push(r); });
+    }
+    series.sort((a,b) => a.date.localeCompare(b.date));
+    // 주간 비교: 최근 7일 / 그 전 7일 / 그 전전 7일 (물량가중)
+    const weekStat = (n) => {
+      const end = new Date(Date.now() + 9*3600*1000); end.setUTCDate(end.getUTCDate() - n*7);
+      const start = new Date(end); start.setUTCDate(start.getUTCDate() - 6);
+      const s = start.toISOString().slice(0,10), e = end.toISOString().slice(0,10);
+      const rows = series.filter(r => r.date >= s && r.date <= e);
+      if (!rows.length) return null;
+      const w = rows.reduce((a,r) => a + r.volumeTons, 0);
+      const p = rows.reduce((a,r) => a + r.avgPricePerKg * r.volumeTons, 0) / (w || 1);
+      return { avgPricePerKg: Math.round(p), volumeTons: Math.round(w*10)/10, days: rows.length };
+    };
+    res.json({ success: true, item, origin,
+      series,
+      compare: { thisWeek: weekStat(0), lastWeek: weekStat(1), twoWeeksAgo: weekStat(2) }
+    });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
 });
 
 // ── Trago 모바일 앱 ──

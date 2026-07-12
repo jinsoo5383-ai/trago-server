@@ -296,6 +296,27 @@ main { flex:1; padding:12px 12px 84px; }
     </section>
 
     <!-- 브로커 -->
+    <!-- 통계 -->
+    <section class="tabpane" id="pane-stats">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">전국 도매시장 경락 데이터 기반 기간별 통계예요. 첫 조회는 여러 날짜를 불러와서 10초 정도 걸릴 수 있어요.</div>
+      <div class="ccard">
+        <h3 id="cmpTitle">주간 가격 비교</h3>
+        <div class="sub">물량가중평균 · kg당 단가</div>
+        <div id="cmpCards" style="display:flex;gap:8px;margin-top:12px;"></div>
+      </div>
+      <div class="ccard">
+        <h3 id="volTitle">물량 추이</h3>
+        <div class="sub" id="volSub">전국 경락 물량 · 일별 톤 · 최근 3주</div>
+        <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartVol"></canvas></div>
+      </div>
+      <div class="ccard" id="importVolCard" style="display:none;">
+        <h3 id="impVolTitle">월별 수입물량</h3>
+        <div class="sub">관세청 통관 실적 · 톤 · 최근 6개월</div>
+        <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartImpVol"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 브로커 -->
     <section class="tabpane" id="pane-broker">
       <div class="bcard">
         <h3>과일브로 <span class="tag">Beta</span></h3>
@@ -331,6 +352,10 @@ main { flex:1; padding:12px 12px 84px; }
     <button data-pane="nation" onclick="goTab('nation')">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>
       전국
+    </button>
+    <button data-pane="stats" onclick="goTab('stats')">
+      <svg viewBox="0 0 24 24"><path d="M4 19V10M9 19V4M14 19v-7M19 19V8" stroke-linecap="round"/><path d="M3 21h18" stroke-linecap="round"/></svg>
+      통계
     </button>
     <button data-pane="broker" onclick="goTab('broker')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5" stroke-linecap="round"/><path d="M16 8h5M18.5 5.5v5" stroke-linecap="round"/></svg>
@@ -417,6 +442,7 @@ function refresh() {
   if (state.tab === 'trades') loadTrades();
   else if (state.tab === 'chart') loadCharts();
   else if (state.tab === 'nation') loadNation();
+  else if (state.tab === 'stats') loadStats();
 }
 
 // ── 실거래 ──
@@ -540,6 +566,98 @@ async function loadCharts() {
       document.getElementById('chartB').getContext('2d').clearRect(0,0,9999,9999);
     }
   } catch(e) {}
+}
+
+// ── 통계 ──
+// 품목별 관세청 HS코드 (수입물량 조회용, 수입과일만)
+const HS_CODES = { '바나나':'0803', '망고':'080450', '파인애플':'080430', '오렌지':'080510', '레몬':'080550', '포도':'0806', '체리':'080929', '키위':'081050', '블루베리':'081040', '아보카도':'080440', '멜론':'080719' };
+let chartVol = null, chartImpVol = null;
+
+async function loadStats() {
+  const cmpEl = document.getElementById('cmpCards');
+  document.getElementById('cmpTitle').textContent = `${state.item} 주간 가격 비교`;
+  document.getElementById('volTitle').textContent = `${state.item} 물량 추이`;
+  document.getElementById('volSub').textContent = state.origin === 'domestic'
+    ? '전국 도매시장 출하물량(경락 기준) · 일별 톤 · 최근 3주'
+    : '전국 도매시장 유통물량(경락 기준) · 일별 톤 · 최근 3주';
+  cmpEl.innerHTML = '<div class="skel" style="flex:1;height:90px;"></div><div class="skel" style="flex:1;height:90px;"></div><div class="skel" style="flex:1;height:90px;"></div>';
+  try {
+    const json = await cachedFetch(`${SERVER}/api/stats?item=${encodeURIComponent(state.item)}&origin=${state.origin}&days=21`);
+    if (!json.success) { cmpEl.innerHTML = `<div class="notice" style="flex:1;">${json.error || '조회 실패'}</div>`; return; }
+    // 주간 비교 카드
+    const c = json.compare;
+    const pct = (cur, prev) => (cur && prev) ? Math.round((cur.avgPricePerKg - prev.avgPricePerKg) / prev.avgPricePerKg * 1000) / 10 : null;
+    const wowNow = pct(c.thisWeek, c.lastWeek);
+    const wowPrev = pct(c.lastWeek, c.twoWeeksAgo);
+    const card = (label, stat, chg) => {
+      if (!stat) return `<div style="flex:1;background:var(--paper);border-radius:12px;padding:12px 10px;text-align:center;font-size:12px;color:var(--faint);">${label}<br><br>데이터 없음</div>`;
+      const chgHtml = chg === null ? '' : `<div style="font-size:11px;font-weight:700;margin-top:3px;color:${chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--blue)' : 'var(--faint)'};">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''} ${Math.abs(chg)}%</div>`;
+      return `<div style="flex:1;background:var(--paper);border-radius:12px;padding:12px 8px;text-align:center;">
+        <div style="font-size:11px;color:var(--sub);font-weight:600;">${label}</div>
+        <div style="font-size:16px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;">₩${stat.avgPricePerKg.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--faint);">/kg · ${stat.volumeTons.toLocaleString()}톤</div>
+        ${chgHtml}
+      </div>`;
+    };
+    cmpEl.innerHTML = card('2주 전', c.twoWeeksAgo, null) + card('지난주', c.lastWeek, wowPrev) + card('이번주', c.thisWeek, wowNow);
+    // 물량 추이 바차트
+    if (chartVol) { chartVol.destroy(); chartVol = null; }
+    if (json.series?.length) {
+      chartVol = new Chart(document.getElementById('chartVol'), {
+        type: 'bar',
+        data: {
+          labels: json.series.map(d => d.date.slice(5,7)+'/'+d.date.slice(8,10)),
+          datasets: [{ data: json.series.map(d => d.volumeTons),
+            backgroundColor: '#9CC5B4', borderRadius: 4, barThickness: 8 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: {display:false}, tooltip: { callbacks: { label: c2 => ` ${c2.raw.toLocaleString()}톤` } } },
+          scales: {
+            x: { grid: {display:false}, ticks: {font:{size:9}, maxRotation: 0, autoSkip: true, maxTicksLimit: 8} },
+            y: { grid: {color:'#F0EEE6'}, ticks: {font:{size:10}, callback: v => v.toLocaleString()+'t'} }
+          }
+        }
+      });
+    }
+  } catch(e) {
+    cmpEl.innerHTML = '<div class="notice" style="flex:1;">불러오기 실패</div>';
+  }
+  // 수입과일이면 관세청 월별 수입물량도 표시
+  const impCard = document.getElementById('importVolCard');
+  const hs = HS_CODES[state.item];
+  if (state.origin === 'import' && hs) {
+    impCard.style.display = 'block';
+    document.getElementById('impVolTitle').textContent = `${state.item} 월별 수입물량`;
+    try {
+      const now = new Date(Date.now() + 9*3600*1000);
+      const end = now.toISOString().slice(0,7).replace('-','');
+      const startD = new Date(now); startD.setUTCMonth(startD.getUTCMonth() - 5);
+      const start = startD.toISOString().slice(0,7).replace('-','');
+      const json = await cachedFetch(`${SERVER}/api/trade?hs=${hs}&start=${start}&end=${end}`);
+      if (chartImpVol) { chartImpVol.destroy(); chartImpVol = null; }
+      if (json.success && json.data?.length) {
+        chartImpVol = new Chart(document.getElementById('chartImpVol'), {
+          type: 'bar',
+          data: {
+            labels: json.data.map(d => d.year.slice(0,4)+'.'+d.year.slice(4)),
+            datasets: [{ data: json.data.map(d => Math.round(d.impWgt/1000)),
+              backgroundColor: '#A9C3DE', borderRadius: 4, barThickness: 22 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: {display:false}, tooltip: { callbacks: { label: c2 => ` ${c2.raw.toLocaleString()}톤` } } },
+            scales: {
+              x: { grid: {display:false}, ticks: {font:{size:10}} },
+              y: { grid: {color:'#F0EEE6'}, ticks: {font:{size:10}, callback: v => v.toLocaleString()+'t'} }
+            }
+          }
+        });
+      }
+    } catch(e) {}
+  } else {
+    impCard.style.display = 'none';
+  }
 }
 
 // ── 전국 ──
