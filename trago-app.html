@@ -345,6 +345,11 @@ main { flex:1; padding:12px 12px 84px; }
         <div id="fcBody" style="margin-top:12px;"></div>
         <div id="fcCaveat" style="font-size:11px;color:var(--faint);line-height:1.55;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);"></div>
       </div>
+      <div class="ccard" style="background:linear-gradient(135deg,#F3F0FB,#FBFAF4);border-color:#DFD8F0;">
+        <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
+        <div class="sub" id="aiSub">뉴스·작황 맥락까지 반영한 하루 2회 브리핑</div>
+        <div id="aiBody" style="margin-top:10px;font-size:13px;line-height:1.65;color:var(--ink);"></div>
+      </div>
       <div class="ccard" id="importVolCard" style="display:none;">
         <h3 id="impVolTitle">월별 수입물량</h3>
         <div class="sub">관세청 통관 실적 · 톤 · 최근 6개월</div>
@@ -665,8 +670,25 @@ async function loadCharts() {
 const HS_CODES = { '바나나':'0803', '망고':'080450', '파인애플':'080430', '오렌지':'080510', '레몬':'080550', '포도':'0806', '체리':'080929', '키위':'081050', '블루베리':'081040', '아보카도':'080440', '멜론':'080719' };
 let chartVol = null, chartImpVol = null;
 
+async function loadAIBriefing() {
+  const el = document.getElementById('aiBody');
+  try {
+    const j = await cachedFetch(`${SERVER}/api/ai-briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    if (!j.success) {
+      el.innerHTML = `<span style="color:var(--sub);">${j.error}</span>`;
+      return;
+    }
+    const genTime = new Date(j.generatedAt).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    el.innerHTML = `<div>${j.text}</div><div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${j.stage === 'morning' ? '오전 속보' : j.stage === 'full' ? '전국 종합' : '수시 갱신'}</div>`;
+  } catch(e) {
+    el.innerHTML = '<span style="color:var(--sub);">불러오기 실패</span>';
+  }
+}
+
 async function loadStats() {
   const cmpEl = document.getElementById('cmpCards');
+  document.getElementById('aiBody').innerHTML = '<div class="skel" style="height:70px;"></div>';
+  loadAIBriefing();
   const unit = getUnitMultiplier('Stats');
   document.getElementById('cmpTitle').textContent = `${state.item} 주간 가격 비교`;
   document.getElementById('volTitle').textContent = `${state.item} 물량 추이`;
