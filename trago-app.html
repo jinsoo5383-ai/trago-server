@@ -484,24 +484,37 @@ function refresh() {
   else if (state.tab === 'stats') loadStats();
 }
 
-// ── 시황 브리핑 (모든 탭 공통) ──
+// ── 시황 브리핑: 탭마다 그 화면과 어울리는 항목만 선별해서 보여줌(중복 방지) ──
+const BRIEF_TAGS_BY_TAB = {
+  trades: ['가격', '물량'],
+  chart: ['가격', '변동성'],
+  nation: ['시장'],
+  stats: ['계절', '전년비']
+};
 async function loadBriefing() {
   const slots = document.querySelectorAll('.briefslot');
   const key = `${state.item}|${state.origin}`;
-  slots.forEach(s => { if (s.dataset.key !== key) s.innerHTML = '<div class="skel" style="height:120px;"></div>'; });
+  slots.forEach(s => { if (s.dataset.key !== key) s.innerHTML = '<div class="skel" style="height:80px;"></div>'; });
   try {
     const j = await cachedFetch(`${SERVER}/api/briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
-    let html;
-    if (!j.success || !j.lines?.length) {
-      html = `<div class="briefcard"><h4>📋 ${state.item} 시황 브리핑</h4><div class="btxt" style="margin-top:8px;color:var(--sub);">${j.error || '분석 가능한 데이터가 없어요.'}</div></div>`;
-    } else {
-      html = `<div class="briefcard">
-        <h4>📋 ${j.item} 시황 브리핑 <span style="font-size:10px;font-weight:600;color:var(--faint);">${j.date} 기준</span></h4>
-        ${j.lines.map(l => `<div class="bline"><span class="btag">${l.tag}</span><span class="btxt">${l.text}</span></div>`).join('')}
-        <div class="bnote">ⓘ ${j.note}</div>
-      </div>`;
-    }
-    slots.forEach(s => { s.innerHTML = html; s.dataset.key = key; });
+    slots.forEach(slot => {
+      const tab = slot.id.replace('brief-', '');
+      const allowedTags = BRIEF_TAGS_BY_TAB[tab] || [];
+      let html;
+      if (!j.success || !j.lines?.length) {
+        html = `<div class="briefcard"><h4>📋 ${state.item} 시황</h4><div class="btxt" style="margin-top:8px;color:var(--sub);">${j.error || '분석 가능한 데이터가 없어요.'}</div></div>`;
+      } else {
+        const lines = j.lines.filter(l => allowedTags.includes(l.tag));
+        if (!lines.length) { slot.innerHTML = ''; slot.dataset.key = key; return; }
+        html = `<div class="briefcard">
+          <h4>📋 ${j.item} 시황 <span style="font-size:10px;font-weight:600;color:var(--faint);">${j.date} 기준</span></h4>
+          ${lines.map(l => `<div class="bline"><span class="btag">${l.tag}</span><span class="btxt">${l.text}</span></div>`).join('')}
+          ${tab === 'stats' ? `<div class="bnote">ⓘ ${j.note}</div>` : ''}
+        </div>`;
+      }
+      slot.innerHTML = html;
+      slot.dataset.key = key;
+    });
   } catch(e) {
     slots.forEach(s => { s.innerHTML = ''; });
   }
