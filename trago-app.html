@@ -345,15 +345,20 @@ main { flex:1; padding:12px 12px 84px; }
         <div id="fcBody" style="margin-top:12px;"></div>
         <div id="fcCaveat" style="font-size:11px;color:var(--faint);line-height:1.55;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);"></div>
       </div>
-      <div class="ccard" style="background:linear-gradient(135deg,#F3F0FB,#FBFAF4);border-color:#DFD8F0;">
-        <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
-        <div class="sub" id="aiSub">뉴스·작황 맥락까지 반영한 하루 2회 브리핑</div>
-        <div id="aiBody" style="margin-top:10px;font-size:13px;line-height:1.65;color:var(--ink);"></div>
-      </div>
       <div class="ccard" id="importVolCard" style="display:none;">
         <h3 id="impVolTitle">월별 수입물량</h3>
         <div class="sub">관세청 통관 실적 · 톤 · 최근 6개월</div>
         <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartImpVol"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 심층분석 -->
+    <section class="tabpane" id="pane-insight">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">시세 데이터에 뉴스·작황·환율 맥락까지 더한 하루 2회(오전 8시/11시) 브리핑이에요.</div>
+      <div class="ccard" style="background:linear-gradient(135deg,#F3F0FB,#FBFAF4);border-color:#DFD8F0;">
+        <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
+        <div class="sub" id="aiSub">뉴스·작황 맥락까지 반영한 하루 2회 브리핑</div>
+        <div id="aiBody" style="margin-top:10px;font-size:13px;line-height:1.65;color:var(--ink);"></div>
       </div>
     </section>
 
@@ -397,6 +402,10 @@ main { flex:1; padding:12px 12px 84px; }
     <button data-pane="stats" onclick="goTab('stats')">
       <svg viewBox="0 0 24 24"><path d="M4 19V10M9 19V4M14 19v-7M19 19V8" stroke-linecap="round"/><path d="M3 21h18" stroke-linecap="round"/></svg>
       통계
+    </button>
+    <button data-pane="insight" onclick="goTab('insight')">
+      <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.6 1 1.3 1 2.1v.4h6v-.4c0-.8.3-1.5 1-2.1A6 6 0 0 0 12 3z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      심층분석
     </button>
     <button data-pane="broker" onclick="goTab('broker')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5" stroke-linecap="round"/><path d="M16 8h5M18.5 5.5v5" stroke-linecap="round"/></svg>
@@ -489,6 +498,7 @@ function refresh() {
   else if (state.tab === 'chart') loadCharts();
   else if (state.tab === 'nation') loadNation();
   else if (state.tab === 'stats') loadStats();
+  else if (state.tab === 'insight') loadAIBriefing();
 }
 
 // ── 시황 브리핑: 탭마다 그 화면과 어울리는 항목만 선별해서 보여줌(중복 방지) ──
@@ -672,6 +682,7 @@ let chartVol = null, chartImpVol = null;
 
 async function loadAIBriefing() {
   const el = document.getElementById('aiBody');
+  el.innerHTML = '<div class="skel" style="height:70px;"></div>';
   try {
     const j = await cachedFetch(`${SERVER}/api/ai-briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
     if (!j.success) {
@@ -687,8 +698,6 @@ async function loadAIBriefing() {
 
 async function loadStats() {
   const cmpEl = document.getElementById('cmpCards');
-  document.getElementById('aiBody').innerHTML = '<div class="skel" style="height:70px;"></div>';
-  loadAIBriefing();
   const unit = getUnitMultiplier('Stats');
   document.getElementById('cmpTitle').textContent = `${state.item} 주간 가격 비교`;
   document.getElementById('volTitle').textContent = `${state.item} 물량 추이`;
