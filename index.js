@@ -573,10 +573,19 @@ app.get('/api/trend', async (req, res) => {
 // 핵심 최적화: marketCd로 필터링해서 외부 API를 부르는 게 아니라, 항상 "그 날짜의 품목 전체"를 한 번만 받아서 캐시하고
 // 특정 시장이 필요하면 로컬(서버 메모리)에서 걸러냄. 예전엔 시장 23개를 각각 조회하면 API를 23번 불렀는데,
 // 이제 하루/품목당 딱 1번만 부르고 나머지는 캐시 재사용 → 호출량이 수십 분의 1로 줄어듦.
-const tradesDayCache = new Map();
+// 오늘자 데이터는 계속 갱신되니 영구캐시는 안 하되, 짧은 TTL(3분)은 걸어서 동시접속자가 늘어도
+// 같은 순간의 요청들이 API 호출 1번으로 묶이게 함 (사용자 수 늘어도 호출량이 비례해서 안 늘어남).
+const tradesDayCache = new Map(); // key → array (영구, 과거날짜)
+const todayCacheTTL = new Map();  // key → { data, expiresAt } (오늘자, 3분)
 async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
   const key = `${date}|${l}|${m}`; // marketCd는 키에서 제외 - 항상 전체를 캐시
   let all = tradesDayCache.get(key);
+  const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  const isToday = date >= kstToday;
+  if (!all && isToday) {
+    const ttlHit = todayCacheTTL.get(key);
+    if (ttlHit && ttlHit.expiresAt > Date.now()) all = ttlHit.data;
+  }
   if (!all) {
     all = [];
     for (let p = 1; p <= maxPages; p++) {
@@ -591,8 +600,8 @@ async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
       const total = parseInt(r.data?.response?.body?.totalCount || 0);
       if (all.length >= total || arr.length < 1000) break;
     }
-    const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
-    if (date < kstToday) tradesDayCache.set(key, all); // 오늘 데이터는 갱신되므로 캐시 안 함
+    if (!isToday) tradesDayCache.set(key, all); // 과거 날짜는 영구 캐시
+    else todayCacheTTL.set(key, { data: all, expiresAt: Date.now() + 3*60*1000 }); // 오늘자는 3분 TTL
   }
   return marketCd ? all.filter(d => d.whsl_mrkt_cd === marketCd) : all;
 }

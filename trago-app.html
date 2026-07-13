@@ -81,6 +81,23 @@ body {
 .briefcard .bnote { font-size:10px; color:var(--faint); margin-top:10px; }
 .briefcard .aline { background:rgba(21,122,91,0.06); border-radius:10px; padding:8px; margin-top:9px; border-left:3px solid var(--green); }
 .briefcard .atag { background:var(--green); color:#fff; }
+.adgate {
+  position:relative; margin-top:8px; padding-top:8px;
+}
+.adgate .locked {
+  filter: blur(5px); user-select:none; pointer-events:none;
+}
+.adgate .lockbtn {
+  position:absolute; top:0; left:0; right:0; bottom:0;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+  background:rgba(251,250,244,0.55);
+}
+.adgate .lockbtn button {
+  background:#5B4A9C; color:#fff; border:none; border-radius:12px;
+  padding:10px 18px; font-size:13px; font-weight:700; font-family:inherit; cursor:pointer;
+  display:flex; align-items:center; gap:6px;
+}
+.adgate .lockbtn .hint { font-size:11px; color:var(--sub); }
 /* ── 콘텐츠 ── */
 main { flex:1; padding:12px 12px 84px; }
 .tabpane { display:none; }
@@ -690,10 +707,36 @@ async function loadAIBriefing() {
       return;
     }
     const genTime = new Date(j.generatedAt).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
-    el.innerHTML = `<div>${j.text}</div><div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${j.stage === 'morning' ? '오전 속보' : j.stage === 'full' ? '전국 종합' : '수시 갱신'}</div>`;
+    const footer = `<div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${j.stage === 'morning' ? '오전 속보' : j.stage === 'full' ? '전국 종합' : '수시 갱신'}</div>`;
+    const unlockKey = `unlocked:${state.item}|${state.origin}`;
+    const sentences = j.text.match(/[^.!?]+[.!?]+/g) || [j.text];
+    const teaser = sentences[0] || '';
+    const rest = sentences.slice(1).join(' ');
+    if (!rest || sessionStorage.getItem(unlockKey)) {
+      el.innerHTML = `<div>${j.text}</div>${footer}`;
+      return;
+    }
+    el.innerHTML = `
+      <div>${teaser}</div>
+      <div class="adgate">
+        <div class="locked">${rest}</div>
+        <div class="lockbtn">
+          <button onclick="unlockAIBriefing('${unlockKey}')">▶ 광고 보고 전체 보기</button>
+          <div class="hint">15초 광고 시청 후 바로 잠금 해제돼요</div>
+        </div>
+      </div>
+      ${footer}`;
   } catch(e) {
     el.innerHTML = '<span style="color:var(--sub);">불러오기 실패</span>';
   }
+}
+
+function unlockAIBriefing(unlockKey) {
+  // TODO: 실제 광고 SDK 연동 시 이 자리에서 리워드 광고를 재생하고,
+  // 광고 시청 완료 콜백에서만 sessionStorage.setItem을 호출하도록 교체하세요.
+  // 지금은 광고 네트워크 연동 전이라 클릭 시 바로 잠금 해제되는 자리표시자예요.
+  sessionStorage.setItem(unlockKey, '1');
+  loadAIBriefing();
 }
 
 async function loadStats() {
