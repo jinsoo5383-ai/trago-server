@@ -561,7 +561,7 @@ app.get('/api/trend', async (req, res) => {
     dates.push(d.toISOString().slice(0,10));
   }
   const results = [];
-  const CHUNK = 5;
+  const CHUNK = 10;
   for (let i = 0; i < dates.length; i += CHUNK) {
     const batch = dates.slice(i, i + CHUNK);
     const chunkResults = await Promise.all(batch.map(async dateStr => {
@@ -620,7 +620,7 @@ async function computeDailySeries(fc, item, origin, days) {
     dates.push(d.toISOString().slice(0,10));
   }
   const series = [];
-  const CHUNK = 5;
+  const CHUNK = 10;
   for (let i = 0; i < dates.length; i += CHUNK) {
     const batch = dates.slice(i, i + CHUNK);
     const results = await Promise.all(batch.map(async date => {
@@ -720,14 +720,16 @@ app.get('/api/forecast', async (req, res) => {
       const trendPart = last + slope * h;
       let price = alpha * trendPart + (1 - alpha) * mean;
       let seasonalApplied = false;
-      // 1달 이상 지평엔 계절 패턴 반영 (목표 월 지수 / 현재 월 지수)
+      // 1달 이상 지평엔 계절 패턴 반영 (목표 월 지수 / 현재 월 지수) - 둘 다 실제 유통 데이터가 있는 달일 때만
       if (seasonalIdx && h >= 26) {
         const calendarDays = Math.round(h * 7 / 6); // 영업일→달력일 환산
         const target = new Date(Date.now() + 9*3600*1000); target.setUTCDate(target.getUTCDate() + calendarDays);
         const targetMonth = target.getUTCMonth();
-        const ratio = seasonalIdx[targetMonth] / (seasonalIdx[nowMonth] || 1);
-        price = price * ratio;
-        seasonalApplied = true;
+        if (seasonalIdx[targetMonth] !== null && seasonalIdx[nowMonth] !== null) {
+          const ratio = seasonalIdx[targetMonth] / seasonalIdx[nowMonth];
+          price = price * ratio;
+          seasonalApplied = true;
+        }
       }
       price = Math.max(Math.round(price), 1);
       let bandRatio = Math.min(Z * sigma * Math.sqrt(h), 0.5); // 장기 밴드는 ±50% 캡
@@ -801,9 +803,11 @@ async function getSeasonalIndex(item, origin) {
     });
     const monthAvgs = byMonth.map(a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null);
     const covered = monthAvgs.filter(v => v !== null);
-    if (covered.length < 10) return null; // 커버리지 부족하면 계절성 미적용
+    if (covered.length < 3) return null; // 최소 3개월치도 없으면 계절성 계산 불가
     const overall = covered.reduce((a,b)=>a+b,0) / covered.length;
-    const indices = monthAvgs.map(v => v === null ? 1 : Math.round(v/overall*1000)/1000);
+    // 데이터 없는 달은 1(평균)로 뭉개지 않고 null로 남김 - "이 시기는 유통 자체가 없다"를 정직하게 표시
+    const indices = monthAvgs.map(v => v === null ? null : Math.round(v/overall*1000)/1000);
+    const coverageMonths = covered.length;
     // 전년 동월 대비: 올해 이번달 평균 vs 작년 이번달 평균
     const now = new Date(Date.now() + 9*3600*1000);
     const curY = now.getUTCFullYear(), curM = String(now.getUTCMonth()+1).padStart(2,'0');
@@ -811,7 +815,7 @@ async function getSeasonalIndex(item, origin) {
     const thisYearAvg = avgOf(byYearMonth[`${curY}-${curM}`]);
     const lastYearAvg = avgOf(byYearMonth[`${curY-1}-${curM}`]);
     const yoyPct = (thisYearAvg && lastYearAvg) ? Math.round((thisYearAvg - lastYearAvg) / lastYearAvg * 1000) / 10 : null;
-    const data = { indices, yoyPct };
+    const data = { indices, yoyPct, coverageMonths };
     seasonalCache.set(key, { data, fetchedAt: Date.now() });
     return data;
   } catch(e) { return null; }
@@ -923,16 +927,30 @@ app.get('/api/briefing', async (req, res) => {
       const idx = seasonal.indices;
       const nowM = new Date(Date.now() + 9*3600*1000).getUTCMonth();
       const nextM = (nowM + 1) % 12;
-      const curPct = Math.round((idx[nowM] - 1) * 100);
-      const nextChg = Math.round((idx[nextM] / idx[nowM] - 1) * 100);
-      const nextDir = nextChg > 3 ? '통상 상승하는' : nextChg < -3 ? '통상 하락하는' : '큰 변화 없는';
-      const peakM = idx.indexOf(Math.max(...idx)) + 1;
-      const lowM = idx.indexOf(Math.min(...idx)) + 1;
-      lines.push({ tag: '계절', text: `${nowM+1}월은 연평균 대비 ${curPct >= 0 ? '+' : ''}${curPct}% 시기이며, ${nextM+1}월은 ${nextDir} 구간입니다. (연중 고점 ${peakM}월 · 저점 ${lowM}월, KAMIS 최근 1년 기준)` });
-      if (nextChg > 5) {
-        actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${nextChg}% 상승했던 구간입니다. 보관 여건이 되면 필요 물량을 이달에 조기 확보하는 편이 유리할 수 있어요.` });
-      } else if (nextChg < -5) {
-        actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${Math.abs(nextChg)}% 하락했던 구간입니다. 지금은 재고를 최소로 가져가고 다음달 사입 비중을 높이는 전략을 검토해보세요.` });
+      const coveredMonths = idx.map((v,i) => v !== null ? i+1 : null).filter(Boolean);
+      const peakIdx = idx.reduce((best,v,i) => (v !== null && (best === -1 || v > idx[best])) ? i : best, -1);
+      const lowIdx = idx.reduce((best,v,i) => (v !== null && (best === -1 || v < idx[best])) ? i : best, -1);
+      const peakM = peakIdx + 1, lowM = lowIdx + 1;
+      if (idx[nowM] === null) {
+        // 이번달은 유통 자체가 거의 없는 시기 (비수기)
+        lines.push({ tag: '계절', text: `이 품목은 주로 ${coveredMonths.join(',')}월에 유통돼요(KAMIS 최근 1년 기준). 지금(${nowM+1}월)은 유통이 적어 계절 비교 데이터가 부족합니다.` });
+      } else {
+        const curPct = Math.round((idx[nowM] - 1) * 100);
+        let seasonText = `${nowM+1}월은 연평균 대비 ${curPct >= 0 ? '+' : ''}${curPct}% 시기`;
+        if (idx[nextM] !== null) {
+          const nextChg = Math.round((idx[nextM] / idx[nowM] - 1) * 100);
+          const nextDir = nextChg > 3 ? '통상 상승하는' : nextChg < -3 ? '통상 하락하는' : '큰 변화 없는';
+          seasonText += `이며, ${nextM+1}월은 ${nextDir} 구간입니다. (연중 고점 ${peakM}월 · 저점 ${lowM}월, KAMIS 최근 1년 기준)`;
+          if (nextChg > 5) {
+            actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${nextChg}% 상승했던 구간입니다. 보관 여건이 되면 필요 물량을 이달에 조기 확보하는 편이 유리할 수 있어요.` });
+          } else if (nextChg < -5) {
+            actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${Math.abs(nextChg)}% 하락했던 구간입니다. 지금은 재고를 최소로 가져가고 다음달 사입 비중을 높이는 전략을 검토해보세요.` });
+          }
+        } else {
+          seasonText += `입니다. ${nextM+1}월부턴 유통이 줄어드는 비수기 진입 구간이에요. (연중 고점 ${peakM}월 · 저점 ${lowM}월)`;
+          actions.push({ tag: '재고전략', text: `이 품목은 ${nextM+1}월부터 유통량이 줄어드는 시즌아웃 구간입니다. 필요 물량은 이번달 안에 확보해두는 게 안전해요.` });
+        }
+        lines.push({ tag: '계절', text: seasonText });
       }
       if (seasonal.yoyPct !== null) {
         const y = seasonal.yoyPct;
