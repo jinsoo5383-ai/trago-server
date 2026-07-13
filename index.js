@@ -817,6 +817,12 @@ async function getSeasonalIndex(item, origin) {
   } catch(e) { return null; }
 }
 
+// 브리핑 대응신호용 대표 상자중량 (프론트 기본값과 동일)
+const SERVER_BOX_KG = {
+  import: { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, '레몬':17, '포도':8, '체리':5, '키위':6, '블루베리':1.5, '아보카도':5.5, '멜론':8 },
+  domestic: { '수박':10, '참외':10, '복숭아':4, '자두':5, '사과':10, '배':2.5, '감귤':3, '포도':2, '키위':6, '블루베리':1.5, '멜론':8 }
+};
+
 // ── 시황 브리핑: 실데이터에서 규칙 기반으로만 생성 (추측·창작 없음) ──
 app.get('/api/briefing', async (req, res) => {
   const item = req.query.item || '바나나';
@@ -854,7 +860,9 @@ app.get('/api/briefing', async (req, res) => {
       const note = vchg > 10 ? ' 반입 증가는 통상 가격 하락 압력으로 작용합니다.' : vchg < -10 ? ' 반입 감소는 통상 가격 지지 요인입니다.' : '';
       lines.push({ tag: '물량', text: `이번주 경락물량 ${tw.vol.toLocaleString()}톤으로 지난주 대비 ${vchg > 0 ? '+' : ''}${vchg}%.${note}` });
     }
-    // ③ 시장 격차 (최근 거래일 기준)
+    // ③ 시장 격차 (최근 거래일 기준) + 차익기회 신호
+    const actions = [];
+    const boxKg = SERVER_BOX_KG[origin === 'domestic' ? 'domestic' : 'import'][item] || 10;
     try {
       let arr = await fetchTradesDay(lastRow.date, fc.l, fc.m);
       arr = applyOriginFilter(arr, item, origin);
@@ -873,9 +881,28 @@ app.get('/api/briefing', async (req, res) => {
         const lo = mkts[0], hi = mkts[mkts.length-1];
         const gap = Math.round((hi.avg - lo.avg) / lo.avg * 100);
         lines.push({ tag: '시장', text: `${lastRow.date} 기준 최저가는 ${lo.nm}(₩${lo.avg.toLocaleString()}/kg), 최고가는 ${hi.nm}(₩${hi.avg.toLocaleString()}/kg)로 시장 간 ${gap}% 격차가 있습니다.` });
+        if (gap >= 10) {
+          const savePerBox = Math.round((hi.avg - lo.avg) * boxKg);
+          actions.push({ tag: '차익기회', text: `${lo.nm} 사입 시 ${hi.nm} 대비 ${boxKg}kg 상자당 약 ₩${savePerBox.toLocaleString()} 절감 가능합니다. 단, 운송비·상장수수료·품질 차이는 반영되지 않았으니 실비 계산 후 판단하세요.` });
+        }
       }
     } catch(e) { /* 시장 라인 스킵 */ }
-    // ④ 변동성
+    // 사입시점 신호: 현재가의 최근 3주 내 위치(백분위)
+    {
+      const ps = series.map(r => r.avgPricePerKg);
+      const lastP = ps[ps.length - 1];
+      const below = ps.filter(p => p <= lastP).length;
+      const pctile = Math.round(below / ps.length * 100);
+      const boxNow = Math.round(lastP * boxKg);
+      if (pctile <= 30) {
+        actions.push({ tag: '사입시점', text: `현재가(${boxKg}kg 상자 약 ₩${boxNow.toLocaleString()})는 최근 3주 중 하위 ${pctile}% 저가 구간입니다. 통계적으로는 사입에 유리한 가격대예요.` });
+      } else if (pctile >= 70) {
+        actions.push({ tag: '사입시점', text: `현재가(${boxKg}kg 상자 약 ₩${boxNow.toLocaleString()})는 최근 3주 중 상위 ${100-pctile}% 고가 구간입니다. 급하지 않다면 관망도 방법이에요.` });
+      } else {
+        actions.push({ tag: '사입시점', text: `현재가(${boxKg}kg 상자 약 ₩${boxNow.toLocaleString()})는 최근 3주 중간 가격대(백분위 ${pctile}%)로, 뚜렷한 저가 메리트는 없는 구간입니다.` });
+      }
+    }
+    // ④ 변동성 + 리스크 신호
     const prices = series.map(r => r.avgPricePerKg);
     const rets = [];
     for (let i = 1; i < prices.length; i++) if (prices[i-1] > 0) rets.push(Math.log(prices[i]/prices[i-1]));
@@ -884,25 +911,36 @@ app.get('/api/briefing', async (req, res) => {
       const sd = Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/rets.length) * 100;
       const lvl = sd < 3 ? '안정적인 편' : sd < 7 ? '보통 수준' : '변동이 큰 편';
       lines.push({ tag: '변동성', text: `최근 3주 일변동성 ${Math.round(sd*10)/10}%로 ${lvl}입니다.` });
+      if (sd >= 7) {
+        actions.push({ tag: '리스크', text: `일변동성 ${Math.round(sd*10)/10}%로 가격 출렁임이 큰 구간입니다. 한 번에 대량 사입보다 2~3회 분할 사입으로 평균단가를 안정시키는 게 유리해요.` });
+      } else if (sd < 3) {
+        actions.push({ tag: '리스크', text: `가격이 안정적인 구간(일변동성 ${Math.round(sd*10)/10}%)이라 일괄 사입 부담이 적습니다.` });
+      }
     }
-    // ⑤ 계절 위치 + ⑥ 전년비 (KAMIS 지원 품목만)
+    // ⑤ 계절 위치 + ⑥ 전년비 (KAMIS 지원 품목만) + 재고전략 신호
     const seasonal = await getSeasonalIndex(item, origin);
     if (seasonal?.indices) {
       const idx = seasonal.indices;
       const nowM = new Date(Date.now() + 9*3600*1000).getUTCMonth();
       const nextM = (nowM + 1) % 12;
       const curPct = Math.round((idx[nowM] - 1) * 100);
-      const nextDir = idx[nextM] > idx[nowM] * 1.03 ? '통상 상승하는' : idx[nextM] < idx[nowM] * 0.97 ? '통상 하락하는' : '큰 변화 없는';
+      const nextChg = Math.round((idx[nextM] / idx[nowM] - 1) * 100);
+      const nextDir = nextChg > 3 ? '통상 상승하는' : nextChg < -3 ? '통상 하락하는' : '큰 변화 없는';
       const peakM = idx.indexOf(Math.max(...idx)) + 1;
       const lowM = idx.indexOf(Math.min(...idx)) + 1;
       lines.push({ tag: '계절', text: `${nowM+1}월은 연평균 대비 ${curPct >= 0 ? '+' : ''}${curPct}% 시기이며, ${nextM+1}월은 ${nextDir} 구간입니다. (연중 고점 ${peakM}월 · 저점 ${lowM}월, KAMIS 최근 1년 기준)` });
+      if (nextChg > 5) {
+        actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${nextChg}% 상승했던 구간입니다. 보관 여건이 되면 필요 물량을 이달에 조기 확보하는 편이 유리할 수 있어요.` });
+      } else if (nextChg < -5) {
+        actions.push({ tag: '재고전략', text: `${nextM+1}월은 작년 기준 약 ${Math.abs(nextChg)}% 하락했던 구간입니다. 지금은 재고를 최소로 가져가고 다음달 사입 비중을 높이는 전략을 검토해보세요.` });
+      }
       if (seasonal.yoyPct !== null) {
         const y = seasonal.yoyPct;
         lines.push({ tag: '전년비', text: `KAMIS 가락도매 기준 전년 동월 대비 ${y > 0 ? '+' : ''}${y}%${Math.abs(y) > 20 ? ' — 작년과 수급 상황이 크게 다른 점 유의하세요' : ''}.` });
       }
     }
-    res.json({ success: true, item, origin, date: lastRow.date, lines,
-      note: '모든 문장은 경락·KAMIS 실데이터에서 자동 산출된 것으로, 주관적 전망이 아닙니다.' });
+    res.json({ success: true, item, origin, date: lastRow.date, lines, actions,
+      note: '관측·신호 모두 경락/KAMIS 실데이터에서 자동 산출된 참고 정보입니다. 운송비·거래처 조건·품질 차이는 반영되지 않으며, 최종 사입 판단은 직접 하셔야 해요.' });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }

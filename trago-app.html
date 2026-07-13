@@ -79,6 +79,8 @@ body {
 }
 .briefcard .btxt { font-size:12.5px; line-height:1.55; color:var(--ink); }
 .briefcard .bnote { font-size:10px; color:var(--faint); margin-top:10px; }
+.briefcard .aline { background:rgba(21,122,91,0.06); border-radius:10px; padding:8px; margin-top:9px; border-left:3px solid var(--green); }
+.briefcard .atag { background:var(--green); color:#fff; }
 /* ── 콘텐츠 ── */
 main { flex:1; padding:12px 12px 84px; }
 .tabpane { display:none; }
@@ -243,11 +245,11 @@ main { flex:1; padding:12px 12px 84px; }
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
         <span style="font-size:12px;color:var(--sub);flex:0 0 auto;">표시 단위</span>
         <select id="unitMode" onchange="onUnitModeChange()" class="selectbox" style="width:auto;flex:0 0 auto;height:34px;margin-bottom:0;padding:0 10px;">
+          <option value="box" selected>상자(box)당</option>
           <option value="kg">kg당</option>
-          <option value="box">상자(box)당</option>
         </select>
-        <input id="boxKgInput" type="number" min="0.5" step="0.5" value="13" oninput="loadCharts()" style="display:none;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
-        <span id="boxKgLabel" style="display:none;font-size:12px;color:var(--sub);">kg 상자</span>
+        <input id="boxKgInput" type="number" min="0.5" step="0.5" value="13" oninput="loadCharts()" style="display:inline-block;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
+        <span id="boxKgLabel" style="display:inline;font-size:12px;color:var(--sub);">kg 상자</span>
       </div>
       <div class="ccard">
         <h3 id="chartATitle">시장별 평균가</h3>
@@ -300,11 +302,11 @@ main { flex:1; padding:12px 12px 84px; }
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
         <span style="font-size:12px;color:var(--sub);flex:0 0 auto;">표시 단위</span>
         <select id="unitModeNation" onchange="onUnitModeChangeNation()" class="selectbox" style="width:auto;flex:0 0 auto;height:34px;margin-bottom:0;padding:0 10px;">
+          <option value="box" selected>상자(box)당</option>
           <option value="kg">kg당</option>
-          <option value="box">상자(box)당</option>
         </select>
-        <input id="boxKgInputNation" type="number" min="0.5" step="0.5" value="13" oninput="loadNation()" style="display:none;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
-        <span id="boxKgLabelNation" style="display:none;font-size:12px;color:var(--sub);">kg 상자</span>
+        <input id="boxKgInputNation" type="number" min="0.5" step="0.5" value="13" oninput="loadNation()" style="display:inline-block;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
+        <span id="boxKgLabelNation" style="display:inline;font-size:12px;color:var(--sub);">kg 상자</span>
       </div>
       <select id="vrtySelect" onchange="loadNation()" class="selectbox"><option value="">전체 구분</option></select>
       <div id="nationList"></div>
@@ -318,11 +320,11 @@ main { flex:1; padding:12px 12px 84px; }
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
         <span style="font-size:12px;color:var(--sub);flex:0 0 auto;">표시 단위</span>
         <select id="unitModeStats" onchange="onUnitModeChangeStats()" class="selectbox" style="width:auto;flex:0 0 auto;height:34px;margin-bottom:0;padding:0 10px;">
+          <option value="box" selected>상자(box)당</option>
           <option value="kg">kg당</option>
-          <option value="box">상자(box)당</option>
         </select>
-        <input id="boxKgInputStats" type="number" min="0.5" step="0.5" value="13" oninput="loadStats()" style="display:none;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
-        <span id="boxKgLabelStats" style="display:none;font-size:12px;color:var(--sub);">kg 상자</span>
+        <input id="boxKgInputStats" type="number" min="0.5" step="0.5" value="13" oninput="loadStats()" style="display:inline-block;width:64px;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:13px;font-family:inherit;">
+        <span id="boxKgLabelStats" style="display:inline;font-size:12px;color:var(--sub);">kg 상자</span>
       </div>
       <div class="ccard">
         <h3 id="cmpTitle">주간 가격 비교</h3>
@@ -491,6 +493,12 @@ const BRIEF_TAGS_BY_TAB = {
   nation: ['시장'],
   stats: ['계절', '전년비']
 };
+const ACTION_TAGS_BY_TAB = {
+  trades: ['사입시점'],
+  chart: ['리스크'],
+  nation: ['차익기회'],
+  stats: ['재고전략']
+};
 async function loadBriefing() {
   const slots = document.querySelectorAll('.briefslot');
   const key = `${state.item}|${state.origin}`;
@@ -500,15 +508,18 @@ async function loadBriefing() {
     slots.forEach(slot => {
       const tab = slot.id.replace('brief-', '');
       const allowedTags = BRIEF_TAGS_BY_TAB[tab] || [];
+      const allowedActions = ACTION_TAGS_BY_TAB[tab] || [];
       let html;
       if (!j.success || !j.lines?.length) {
         html = `<div class="briefcard"><h4>📋 ${state.item} 시황</h4><div class="btxt" style="margin-top:8px;color:var(--sub);">${j.error || '분석 가능한 데이터가 없어요.'}</div></div>`;
       } else {
         const lines = j.lines.filter(l => allowedTags.includes(l.tag));
-        if (!lines.length) { slot.innerHTML = ''; slot.dataset.key = key; return; }
+        const acts = (j.actions || []).filter(a => allowedActions.includes(a.tag));
+        if (!lines.length && !acts.length) { slot.innerHTML = ''; slot.dataset.key = key; return; }
         html = `<div class="briefcard">
           <h4>📋 ${j.item} 시황 <span style="font-size:10px;font-weight:600;color:var(--faint);">${j.date} 기준</span></h4>
           ${lines.map(l => `<div class="bline"><span class="btag">${l.tag}</span><span class="btxt">${l.text}</span></div>`).join('')}
+          ${acts.map(a => `<div class="bline aline"><span class="btag atag">🎯 ${a.tag}</span><span class="btxt"><b>${a.text}</b></span></div>`).join('')}
           ${tab === 'stats' ? `<div class="bnote">ⓘ ${j.note}</div>` : ''}
         </div>`;
       }
@@ -811,6 +822,7 @@ async function loadNation() {
 }
 
 // ── 초기화 ──
+['boxKgInput','boxKgInputNation','boxKgInputStats'].forEach(id => { const el = document.getElementById(id); if (el) el.value = getBoxKg(state.item); });
 renderDate(); renderChips(); loadTrades(); loadBriefing();
 </script>
 </body>
