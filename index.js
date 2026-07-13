@@ -10,6 +10,7 @@ app.use(express.json());
 
 const API_KEY = '54fa6a4fb68a227e04811bbe2844d5332bc4319c3105190c5e20758bc45af3ae';
 const KAMIS_KEY = '4c4c7781-ee4a-44fc-bc34-c015aba41070';
+const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const KAMIS_ID = '7624';
 
 app.get('/', (req, res) => {
@@ -813,18 +814,16 @@ const SERVER_BOX_KG = {
 };
 
 // ── 시황 브리핑: 실데이터에서 규칙 기반으로만 생성 (추측·창작 없음) ──
-app.get('/api/briefing', async (req, res) => {
-  const item = req.query.item || '바나나';
-  const origin = req.query.origin || 'import';
+// 시황 브리핑 로직 본체 - /api/briefing 라우트와 AI 배치생성이 공용으로 사용
+async function computeBriefing(item, origin) {
   const fc = FRUIT_CODES[item];
-  if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
-  try {
-    const series = await computeDailySeries(fc, item, origin, 21);
-    if (series.length < 4) return res.json({ success: false, error: '분석할 데이터가 부족합니다(휴장 연속 등).' });
-    const lines = [];
-    const lastRow = series[series.length - 1];
-    // 주간 집계
-    const weekStat = (n) => {
+  if (!fc) return { success: false, error: '지원하지 않는 품목입니다.' };
+  const series = await computeDailySeries(fc, item, origin, 21);
+  if (series.length < 4) return { success: false, error: '분석할 데이터가 부족합니다(휴장 연속 등).' };
+  const lines = [];
+  const lastRow = series[series.length - 1];
+  // 주간 집계
+  const weekStat = (n) => {
       const end = new Date(Date.now() + 9*3600*1000); end.setUTCDate(end.getUTCDate() - n*7);
       const start = new Date(end); start.setUTCDate(start.getUTCDate() - 6);
       const s = start.toISOString().slice(0,10), e = end.toISOString().slice(0,10);
@@ -942,8 +941,121 @@ app.get('/api/briefing', async (req, res) => {
         lines.push({ tag: '전년비', text: `KAMIS 가락도매 기준 전년 동월 대비 ${y > 0 ? '+' : ''}${y}%${Math.abs(y) > 20 ? ' — 작년과 수급 상황이 크게 다른 점 유의하세요' : ''}.` });
       }
     }
-    res.json({ success: true, item, origin, date: lastRow.date, lines, actions,
-      note: '관측·신호 모두 경락/KAMIS 실데이터에서 자동 산출된 참고 정보입니다. 운송비·거래처 조건·품질 차이는 반영되지 않으며, 최종 사입 판단은 직접 하셔야 해요.' });
+  return { success: true, item, origin, date: lastRow.date, lines, actions,
+      note: '관측·신호 모두 경락/KAMIS 실데이터에서 자동 산출된 참고 정보입니다. 운송비·거래처 조건·품질 차이는 반영되지 않으며, 최종 사입 판단은 직접 하셔야 해요.' };
+}
+
+app.get('/api/briefing', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  try {
+    const result = await computeBriefing(item, origin);
+    res.json(result);
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ── AI 시황 분석 (Gemini) ──
+// 설계 원칙: 사용자가 볼 때마다 부르지 않고 하루 2번(오전 속보/전국 종합) 배치로 생성해서 캐시.
+// 환각 방지: 우리가 계산한 숫자(lines/actions)를 프롬프트에 그대로 박아넣고 "이 숫자 안에서만 해석, 새 숫자 창작 금지" 강제.
+// 구글 검색 그라운딩을 켜서 실제 뉴스 기반으로만 맥락(작황/환율/명절)을 채우게 함.
+const aiBriefingCache = new Map(); // key: item|origin → { text, generatedAt, stage }
+
+async function callGemini(prompt, useSearch = true) {
+  if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
+  };
+  if (useSearch) body.tools = [{ google_search: {} }];
+  const r = await axios.post(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    body, { timeout: 30000 }
+  );
+  const parts = r.data?.candidates?.[0]?.content?.parts || [];
+  return parts.map(p => p.text || '').join('').trim();
+}
+
+async function generateAIBriefing(item, origin) {
+  const brief = await computeBriefing(item, origin);
+  if (!brief.success) return null;
+  const factSheet = {
+    품목: item, 구분: origin === 'domestic' ? '국산' : '수입', 기준일: brief.date,
+    관측: brief.lines.map(l => `[${l.tag}] ${l.text}`),
+    신호: brief.actions.map(a => `[${a.tag}] ${a.text}`)
+  };
+  const prompt = `너는 한국 농산물 도매시장 전문 애널리스트야. 아래는 시스템이 실제 경락 데이터로 이미 계산해둔 사실이야.
+
+${JSON.stringify(factSheet, null, 2)}
+
+규칙(반드시 지켜):
+1. 위 "관측"과 "신호"에 있는 숫자는 그대로 인용해도 되지만, 여기 없는 새로운 가격/물량/퍼센트 수치를 절대 만들어내지 마.
+2. 구글 검색으로 이 품목의 최근 작황·수입동향·환율·명절수요 등 실제 뉴스가 있으면 찾아서 반영하고, 없으면 억지로 지어내지 말고 그냥 언급하지 마.
+3. 검색으로 찾은 사실은 출처를 알 수 있게 자연스럽게 언급해(예: "최근 보도에 따르면").
+4. 분량은 3~4문장, 한국어 존댓말, 바이어가 읽고 바로 판단할 수 있는 실전 톤으로.
+5. 확실하지 않은 건 "~로 보입니다", "~할 가능성이 있습니다"처럼 단정하지 마.
+6. 마지막 문장은 반드시 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다." 로 끝내.`;
+  const text = await callGemini(prompt, true);
+  return text || null;
+}
+
+async function runAIBriefingBatch(stage) {
+  // stage: 'morning'(오전 속보, 개장 빠른 시장 위주) | 'full'(전국 종합)
+  const combos = [];
+  for (const it of ITEMS_IMPORT_SERVER) combos.push([it, 'import']);
+  for (const it of ITEMS_DOMESTIC_SERVER) combos.push([it, 'domestic']);
+  console.log(`[AI브리핑] ${stage} 배치 시작 - ${combos.length}개 조합`);
+  for (const [item, origin] of combos) {
+    try {
+      const text = await generateAIBriefing(item, origin);
+      if (text) {
+        aiBriefingCache.set(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
+      }
+    } catch (e) {
+      console.log(`[AI브리핑] 실패: ${item}/${origin} - ${e.message}`);
+    }
+  }
+  console.log(`[AI브리핑] ${stage} 배치 완료`);
+}
+
+const ITEMS_IMPORT_SERVER = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
+const ITEMS_DOMESTIC_SERVER = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
+
+// 스케줄러: 매분 KST 시각 체크, 8시엔 오전 속보(개장 빠른 시장 위주), 11시엔 전국종합 - 하루 한 번씩만 실행
+let lastRunDate = { morning: null, full: null };
+setInterval(() => {
+  const kst = new Date(Date.now() + 9*3600*1000);
+  const dateStr = kst.toISOString().slice(0,10);
+  const h = kst.getUTCHours(), min = kst.getUTCMinutes();
+  const isWeekday = kst.getUTCDay() !== 0; // 일요일 휴장
+  if (isWeekday && h === 8 && min === 0 && lastRunDate.morning !== dateStr) {
+    lastRunDate.morning = dateStr;
+    runAIBriefingBatch('morning').catch(e => console.log('배치 에러', e.message));
+  }
+  if (isWeekday && h === 11 && min === 0 && lastRunDate.full !== dateStr) {
+    lastRunDate.full = dateStr;
+    runAIBriefingBatch('full').catch(e => console.log('배치 에러', e.message));
+  }
+}, 60 * 1000);
+
+app.get('/api/ai-briefing', (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const cached = aiBriefingCache.get(`${item}|${origin}`);
+  if (!cached) return res.json({ success: false, error: '아직 생성된 분석이 없어요. 오전 8시/11시 배치를 기다려주세요.' });
+  res.json({ success: true, item, origin, ...cached });
+});
+
+// 수동 트리거 (테스트/관리자용) - 대기 없이 바로 특정 품목 하나만 생성
+app.get('/api/ai-briefing/test', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  try {
+    const text = await generateAIBriefing(item, origin);
+    if (!text) return res.json({ success: false, error: '데이터 부족으로 생성 실패' });
+    aiBriefingCache.set(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
+    res.json({ success: true, item, origin, text });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
