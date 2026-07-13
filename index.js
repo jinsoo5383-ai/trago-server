@@ -709,25 +709,200 @@ app.get('/api/forecast', async (req, res) => {
       { label: '3주 후', h: 18 }, { label: '1달 후', h: 26 }, { label: '3달 후', h: 78 },
       { label: '6개월 후', h: 156 }, { label: '1년 후', h: 312 }
     ];
-    const confidenceOf = h => h <= 1 ? '높음' : h <= 6 ? '보통' : h <= 26 ? '낮음' : '매우 낮음';
+    const confidenceOf = (h, seasonal) => h <= 1 ? '높음' : h <= 6 ? '보통' : h <= 26 ? '낮음' : (seasonal ? '낮음' : '매우 낮음');
     const Z = 1.28; // 80% 구간
+    // 계절지수 (KAMIS 최근 1년, 지원 품목만)
+    const seasonal = await getSeasonalIndex(item, origin);
+    const seasonalIdx = seasonal?.indices || null;
+    const nowMonth = new Date(Date.now() + 9*3600*1000).getUTCMonth(); // 0-11
     const forecasts = HORIZONS.map(({label, h}) => {
       const alpha = Math.exp(-h / 40); // 단기는 추세, 장기는 평균회귀
       const trendPart = last + slope * h;
       let price = alpha * trendPart + (1 - alpha) * mean;
+      let seasonalApplied = false;
+      // 1달 이상 지평엔 계절 패턴 반영 (목표 월 지수 / 현재 월 지수)
+      if (seasonalIdx && h >= 26) {
+        const calendarDays = Math.round(h * 7 / 6); // 영업일→달력일 환산
+        const target = new Date(Date.now() + 9*3600*1000); target.setUTCDate(target.getUTCDate() + calendarDays);
+        const targetMonth = target.getUTCMonth();
+        const ratio = seasonalIdx[targetMonth] / (seasonalIdx[nowMonth] || 1);
+        price = price * ratio;
+        seasonalApplied = true;
+      }
       price = Math.max(Math.round(price), 1);
       let bandRatio = Math.min(Z * sigma * Math.sqrt(h), 0.5); // 장기 밴드는 ±50% 캡
       const low = Math.max(Math.round(price * (1 - bandRatio)), 1);
       const high = Math.round(price * (1 + bandRatio));
-      return { label, marketDays: h, price, low, high, confidence: confidenceOf(h) };
+      return { label, marketDays: h, price, low, high, confidence: confidenceOf(h, seasonalApplied), seasonal: seasonalApplied };
     });
+    const seasonalUsed = forecasts.some(f => f.seasonal);
     res.json({
       success: true, item, origin,
       lastDate: series[n-1].date, lastPrice: last,
       dataDays: n, dailyVolatilityPct: Math.round(sigma * 1000) / 10,
+      seasonalApplied: seasonalUsed,
       forecasts,
-      caveat: '최근 4주 경락 데이터 기반 통계 추정입니다. 계절성·작황·환율·명절 수요는 반영되지 않으며, 특히 3달 이상 장기 예측은 방향성 참고용입니다.'
+      caveat: seasonalUsed
+        ? '단기는 최근 4주 경락 추세, 1달 이상은 KAMIS 가락도매 최근 1년 계절 패턴을 반영한 통계 추정입니다. 작황·환율·명절 수요 등 돌발 변수는 반영되지 않으니 참고용으로만 활용하세요.'
+        : '최근 4주 경락 데이터 기반 통계 추정입니다. 계절성·작황·환율·명절 수요는 반영되지 않으며, 특히 3달 이상 장기 예측은 방향성 참고용입니다.'
     });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ── KAMIS 계절지수: 최근 1년 가락도매 시세로 월별 가격 패턴 산출 (검증된 품목코드만) ──
+const KAMIS_SEASONAL_CODES = {
+  'import|바나나': { cat:'400', code:'418', kind:'02' },
+  'import|파인애플': { cat:'400', code:'420', kind:'02' },
+  'import|오렌지': { cat:'400', code:'421', kind:'06' },
+  'import|레몬': { cat:'400', code:'424', kind:'00' },
+  'import|체리': { cat:'400', code:'425', kind:'00' },
+  'import|망고': { cat:'400', code:'428', kind:'00' },
+  'import|키위': { cat:'400', code:'419', kind:'02' },
+  'domestic|사과': { cat:'400', code:'411', kind:'05' },
+  'domestic|배': { cat:'400', code:'412', kind:'01' },
+  'domestic|복숭아': { cat:'400', code:'413', kind:'01' },
+  'domestic|포도': { cat:'400', code:'414', kind:'01' },
+  'domestic|수박': { cat:'200', code:'221', kind:'00' },
+  'domestic|참외': { cat:'200', code:'222', kind:'00' }
+};
+const seasonalCache = new Map(); // key → { data: {indices, yoyPct}, fetchedAt }
+async function getSeasonalIndex(item, origin) {
+  const key = `${origin}|${item}`;
+  const codes = KAMIS_SEASONAL_CODES[key];
+  if (!codes) return null;
+  const cached = seasonalCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < 24*3600*1000) return cached.data;
+  try {
+    const end = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+    const startD = new Date(Date.now() + 9*3600*1000); startD.setUTCDate(startD.getUTCDate() - 370);
+    const start = startD.toISOString().slice(0,10);
+    const r = await axios.get('https://www.kamis.or.kr/service/price/xml.do', {
+      params: {
+        action: 'periodProductList', p_startday: start, p_endday: end,
+        p_itemcategorycode: codes.cat, p_itemcode: codes.code, p_kindcode: codes.kind,
+        p_productclscode: '02', p_convert_kg_yn: 'Y',
+        p_cert_key: KAMIS_KEY, p_cert_id: KAMIS_ID, p_returntype: 'json'
+      }
+    });
+    const rows = (r.data?.data?.item || []).filter(i => typeof i.itemname === 'string');
+    const byMonth = Array.from({length:12}, () => []);
+    const byYearMonth = {}; // 'yyyy-mm' → [prices]
+    rows.forEach(row => {
+      const price = parseFloat(String(row.price||'').replace(/,/g,''));
+      const mm = parseInt(String(row.regday||'').slice(0,2));
+      const yyyy = String(row.yyyy||'');
+      if (price > 0 && mm >= 1 && mm <= 12) {
+        byMonth[mm-1].push(price);
+        const ym = `${yyyy}-${String(mm).padStart(2,'0')}`;
+        (byYearMonth[ym] = byYearMonth[ym] || []).push(price);
+      }
+    });
+    const monthAvgs = byMonth.map(a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null);
+    const covered = monthAvgs.filter(v => v !== null);
+    if (covered.length < 10) return null; // 커버리지 부족하면 계절성 미적용
+    const overall = covered.reduce((a,b)=>a+b,0) / covered.length;
+    const indices = monthAvgs.map(v => v === null ? 1 : Math.round(v/overall*1000)/1000);
+    // 전년 동월 대비: 올해 이번달 평균 vs 작년 이번달 평균
+    const now = new Date(Date.now() + 9*3600*1000);
+    const curY = now.getUTCFullYear(), curM = String(now.getUTCMonth()+1).padStart(2,'0');
+    const avgOf = a => a && a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+    const thisYearAvg = avgOf(byYearMonth[`${curY}-${curM}`]);
+    const lastYearAvg = avgOf(byYearMonth[`${curY-1}-${curM}`]);
+    const yoyPct = (thisYearAvg && lastYearAvg) ? Math.round((thisYearAvg - lastYearAvg) / lastYearAvg * 1000) / 10 : null;
+    const data = { indices, yoyPct };
+    seasonalCache.set(key, { data, fetchedAt: Date.now() });
+    return data;
+  } catch(e) { return null; }
+}
+
+// ── 시황 브리핑: 실데이터에서 규칙 기반으로만 생성 (추측·창작 없음) ──
+app.get('/api/briefing', async (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const fc = FRUIT_CODES[item];
+  if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
+  try {
+    const series = await computeDailySeries(fc, item, origin, 21);
+    if (series.length < 4) return res.json({ success: false, error: '분석할 데이터가 부족합니다(휴장 연속 등).' });
+    const lines = [];
+    const lastRow = series[series.length - 1];
+    // 주간 집계
+    const weekStat = (n) => {
+      const end = new Date(Date.now() + 9*3600*1000); end.setUTCDate(end.getUTCDate() - n*7);
+      const start = new Date(end); start.setUTCDate(start.getUTCDate() - 6);
+      const s = start.toISOString().slice(0,10), e = end.toISOString().slice(0,10);
+      const rows = series.filter(r => r.date >= s && r.date <= e);
+      if (!rows.length) return null;
+      const w = rows.reduce((a,r) => a + r.volumeTons, 0);
+      const p = rows.reduce((a,r) => a + r.avgPricePerKg * r.volumeTons, 0) / (w || 1);
+      return { price: Math.round(p), vol: Math.round(w*10)/10 };
+    };
+    const tw = weekStat(0), lw = weekStat(1);
+    // ① 가격 동향
+    if (tw && lw) {
+      const chg = Math.round((tw.price - lw.price) / lw.price * 1000) / 10;
+      const dir = chg > 1 ? `지난주 대비 ${chg}% 상승` : chg < -1 ? `지난주 대비 ${Math.abs(chg)}% 하락` : '지난주와 비슷한 보합';
+      lines.push({ tag: '가격', text: `이번주 평균 ₩${tw.price.toLocaleString()}/kg, ${dir} 흐름입니다.` });
+    } else {
+      lines.push({ tag: '가격', text: `최근 거래일(${lastRow.date}) 평균 ₩${lastRow.avgPricePerKg.toLocaleString()}/kg입니다.` });
+    }
+    // ② 물량 동향
+    if (tw && lw && lw.vol > 0) {
+      const vchg = Math.round((tw.vol - lw.vol) / lw.vol * 1000) / 10;
+      const note = vchg > 10 ? ' 반입 증가는 통상 가격 하락 압력으로 작용합니다.' : vchg < -10 ? ' 반입 감소는 통상 가격 지지 요인입니다.' : '';
+      lines.push({ tag: '물량', text: `이번주 경락물량 ${tw.vol.toLocaleString()}톤으로 지난주 대비 ${vchg > 0 ? '+' : ''}${vchg}%.${note}` });
+    }
+    // ③ 시장 격차 (최근 거래일 기준)
+    try {
+      let arr = await fetchTradesDay(lastRow.date, fc.l, fc.m);
+      arr = applyOriginFilter(arr, item, origin);
+      const byMkt = {};
+      arr.forEach(d => {
+        const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
+        if (!price || !uq) return;
+        const nm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
+        (byMkt[nm] = byMkt[nm] || []).push({ p: price/uq, w: uq*q });
+      });
+      const mkts = Object.entries(byMkt).filter(([,rows]) => rows.length >= 5).map(([nm, rows]) => {
+        const w = rows.reduce((a,r)=>a+r.w,0);
+        return { nm, avg: Math.round(rows.reduce((a,r)=>a+r.p*r.w,0)/w) };
+      }).sort((a,b) => a.avg - b.avg);
+      if (mkts.length >= 2) {
+        const lo = mkts[0], hi = mkts[mkts.length-1];
+        const gap = Math.round((hi.avg - lo.avg) / lo.avg * 100);
+        lines.push({ tag: '시장', text: `${lastRow.date} 기준 최저가는 ${lo.nm}(₩${lo.avg.toLocaleString()}/kg), 최고가는 ${hi.nm}(₩${hi.avg.toLocaleString()}/kg)로 시장 간 ${gap}% 격차가 있습니다.` });
+      }
+    } catch(e) { /* 시장 라인 스킵 */ }
+    // ④ 변동성
+    const prices = series.map(r => r.avgPricePerKg);
+    const rets = [];
+    for (let i = 1; i < prices.length; i++) if (prices[i-1] > 0) rets.push(Math.log(prices[i]/prices[i-1]));
+    if (rets.length >= 3) {
+      const rm = rets.reduce((a,b)=>a+b,0)/rets.length;
+      const sd = Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/rets.length) * 100;
+      const lvl = sd < 3 ? '안정적인 편' : sd < 7 ? '보통 수준' : '변동이 큰 편';
+      lines.push({ tag: '변동성', text: `최근 3주 일변동성 ${Math.round(sd*10)/10}%로 ${lvl}입니다.` });
+    }
+    // ⑤ 계절 위치 + ⑥ 전년비 (KAMIS 지원 품목만)
+    const seasonal = await getSeasonalIndex(item, origin);
+    if (seasonal?.indices) {
+      const idx = seasonal.indices;
+      const nowM = new Date(Date.now() + 9*3600*1000).getUTCMonth();
+      const nextM = (nowM + 1) % 12;
+      const curPct = Math.round((idx[nowM] - 1) * 100);
+      const nextDir = idx[nextM] > idx[nowM] * 1.03 ? '통상 상승하는' : idx[nextM] < idx[nowM] * 0.97 ? '통상 하락하는' : '큰 변화 없는';
+      const peakM = idx.indexOf(Math.max(...idx)) + 1;
+      const lowM = idx.indexOf(Math.min(...idx)) + 1;
+      lines.push({ tag: '계절', text: `${nowM+1}월은 연평균 대비 ${curPct >= 0 ? '+' : ''}${curPct}% 시기이며, ${nextM+1}월은 ${nextDir} 구간입니다. (연중 고점 ${peakM}월 · 저점 ${lowM}월, KAMIS 최근 1년 기준)` });
+      if (seasonal.yoyPct !== null) {
+        const y = seasonal.yoyPct;
+        lines.push({ tag: '전년비', text: `KAMIS 가락도매 기준 전년 동월 대비 ${y > 0 ? '+' : ''}${y}%${Math.abs(y) > 20 ? ' — 작년과 수급 상황이 크게 다른 점 유의하세요' : ''}.` });
+      }
+    }
+    res.json({ success: true, item, origin, date: lastRow.date, lines,
+      note: '모든 문장은 경락·KAMIS 실데이터에서 자동 산출된 것으로, 주관적 전망이 아닙니다.' });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
