@@ -966,7 +966,7 @@ async function callGemini(prompt, useSearch = true) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
+    generationConfig: { temperature: 0.3, maxOutputTokens: 2000, thinkingConfig: { thinkingBudget: 512 } }
   };
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
@@ -974,7 +974,7 @@ async function callGemini(prompt, useSearch = true) {
     body, { timeout: 45000 }
   );
   const parts = r.data?.candidates?.[0]?.content?.parts || [];
-  return parts.map(p => p.text || '').join('').trim();
+  return parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
 }
 
 async function generateAIBriefing(item, origin) {
