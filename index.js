@@ -464,17 +464,7 @@ app.get('/api/market', async (req, res) => {
     for (const name of IMPORT_FRUITS) {
       const fc = FRUIT_CODES[name];
       try {
-        const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
-          params: {
-            serviceKey: API_KEY, numOfRows: 200, pageNo: 1, returnType: 'json',
-            'cond[trd_clcln_ymd::EQ]': today,
-            'cond[gds_lclsf_cd::EQ]': fc.l,
-            'cond[gds_mclsf_cd::EQ]': fc.m,
-            'cond[whsl_mrkt_cd::EQ]': marketCd
-          }
-        });
-        const items = response.data?.response?.body?.items?.item || [];
-        let arr = Array.isArray(items) ? items : [items];
+        let arr = await fetchTradesDay(today, fc.l, fc.m, marketCd);
         arr = applyOriginFilter(arr, name, req.query.origin || 'import');
         const rows = arr.map(d => ({ price: parseFloat(d.scsbd_prc), qty: parseFloat(d.qty) || 1 })).filter(r => r.price > 0);
         if (rows.length) {
@@ -504,16 +494,7 @@ app.get('/api/trades', async (req, res) => {
     return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(FRUIT_CODES).join(', ')}` });
   }
   try {
-    const params = {
-      serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
-      'cond[trd_clcln_ymd::EQ]': date,
-      'cond[gds_lclsf_cd::EQ]': fc.l,
-      'cond[gds_mclsf_cd::EQ]': fc.m
-    };
-    if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
-    const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
-    const items = response.data?.response?.body?.items?.item || [];
-    let arr = Array.isArray(items) ? items : [items];
+    let arr = await fetchTradesDay(date, fc.l, fc.m, marketCd);
     arr = applyOriginFilter(arr, item, req.query.origin || 'import');
     const grouped = {};
     arr.forEach(d => {
@@ -540,7 +521,7 @@ app.get('/api/trades', async (req, res) => {
         min: Math.round(Math.min(...g.rows.map(r=>r.price)))
       };
     }).sort((a,b) => b.count - a.count);
-    res.json({ success: true, item, date, totalCount: response.data?.response?.body?.totalCount || 0, data });
+    res.json({ success: true, item, date, totalCount: arr.length, data });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
@@ -566,7 +547,7 @@ app.get('/api/trend', async (req, res) => {
     const batch = dates.slice(i, i + CHUNK);
     const chunkResults = await Promise.all(batch.map(async dateStr => {
       try {
-        let arr = await fetchTradesDay(dateStr, fc.l, fc.m, marketCd, 1);
+        let arr = await fetchTradesDay(dateStr, fc.l, fc.m, marketCd);
         arr = applyOriginFilter(arr, item, origin);
         const rows = arr.map(x => {
           const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1;
@@ -588,27 +569,31 @@ app.get('/api/trend', async (req, res) => {
 });
 
 // ── 공용: 하루치 거래 데이터 fetch + 서버 캐싱 (과거 날짜는 불변이므로 영구 캐시 → API 호출 절약) ──
+// 핵심 최적화: marketCd로 필터링해서 외부 API를 부르는 게 아니라, 항상 "그 날짜의 품목 전체"를 한 번만 받아서 캐시하고
+// 특정 시장이 필요하면 로컬(서버 메모리)에서 걸러냄. 예전엔 시장 23개를 각각 조회하면 API를 23번 불렀는데,
+// 이제 하루/품목당 딱 1번만 부르고 나머지는 캐시 재사용 → 호출량이 수십 분의 1로 줄어듦.
 const tradesDayCache = new Map();
-async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 2) {
-  const key = `${date}|${l}|${m}|${marketCd}`;
-  if (tradesDayCache.has(key)) return tradesDayCache.get(key);
-  let all = [];
-  for (let p = 1; p <= maxPages; p++) {
-    const params = {
-      serviceKey: API_KEY, numOfRows: 1000, pageNo: p, returnType: 'json',
-      'cond[trd_clcln_ymd::EQ]': date, 'cond[gds_lclsf_cd::EQ]': l, 'cond[gds_mclsf_cd::EQ]': m
-    };
-    if (marketCd) params['cond[whsl_mrkt_cd::EQ]'] = marketCd;
-    const r = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
-    const items = r.data?.response?.body?.items?.item || [];
-    const arr = (Array.isArray(items) ? items : [items]).filter(Boolean);
-    all = all.concat(arr);
-    const total = parseInt(r.data?.response?.body?.totalCount || 0);
-    if (all.length >= total || arr.length < 1000) break;
+async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
+  const key = `${date}|${l}|${m}`; // marketCd는 키에서 제외 - 항상 전체를 캐시
+  let all = tradesDayCache.get(key);
+  if (!all) {
+    all = [];
+    for (let p = 1; p <= maxPages; p++) {
+      const params = {
+        serviceKey: API_KEY, numOfRows: 1000, pageNo: p, returnType: 'json',
+        'cond[trd_clcln_ymd::EQ]': date, 'cond[gds_lclsf_cd::EQ]': l, 'cond[gds_mclsf_cd::EQ]': m
+      };
+      const r = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
+      const items = r.data?.response?.body?.items?.item || [];
+      const arr = (Array.isArray(items) ? items : [items]).filter(Boolean);
+      all = all.concat(arr);
+      const total = parseInt(r.data?.response?.body?.totalCount || 0);
+      if (all.length >= total || arr.length < 1000) break;
+    }
+    const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+    if (date < kstToday) tradesDayCache.set(key, all); // 오늘 데이터는 갱신되므로 캐시 안 함
   }
-  const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
-  if (date < kstToday) tradesDayCache.set(key, all); // 오늘 데이터는 갱신되므로 캐시 안 함
-  return all;
+  return marketCd ? all.filter(d => d.whsl_mrkt_cd === marketCd) : all;
 }
 
 // 일별 시리즈(물량·가중평균가) 계산 - stats와 forecast에서 공용
@@ -978,16 +963,7 @@ app.get('/api/nationwide', async (req, res) => {
     return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(FRUIT_CODES).join(', ')}` });
   }
   try {
-    const response = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', {
-      params: {
-        serviceKey: API_KEY, numOfRows: 1000, pageNo: 1, returnType: 'json',
-        'cond[trd_clcln_ymd::EQ]': today,
-        'cond[gds_lclsf_cd::EQ]': fc.l,
-        'cond[gds_mclsf_cd::EQ]': fc.m
-      }
-    });
-    const items = response.data?.response?.body?.items?.item || [];
-    let arr = Array.isArray(items) ? items : [items];
+    let arr = await fetchTradesDay(today, fc.l, fc.m);
     arr = applyOriginFilter(arr, item, req.query.origin || 'import');
     const vrtyOptions = [...new Set(arr.map(d => d.corp_gds_vrty_nm).filter(Boolean))];
     const vrtyFilter = req.query.vrty || '';
@@ -1016,7 +992,7 @@ app.get('/api/nationwide', async (req, res) => {
         count: g.rows.length
       };
     }).sort((a,b) => a.avgPricePerKg - b.avgPricePerKg);
-    res.json({ success: true, item, date: today, vrtyOptions, vrtyFilter, totalCount: response.data?.response?.body?.totalCount || 0, data: result });
+    res.json({ success: true, item, date: today, vrtyOptions, vrtyFilter, totalCount: arr.length, data: result });
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
