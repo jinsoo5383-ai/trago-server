@@ -971,7 +971,7 @@ async function callGemini(prompt, useSearch = true) {
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    body, { timeout: 30000 }
+    body, { timeout: 45000 }
   );
   const parts = r.data?.candidates?.[0]?.content?.parts || [];
   return parts.map(p => p.text || '').join('').trim();
