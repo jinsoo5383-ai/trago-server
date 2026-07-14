@@ -697,6 +697,25 @@ async function loadCharts() {
 const HS_CODES = { '바나나':'0803', '망고':'080450', '파인애플':'080430', '오렌지':'080510', '레몬':'080550', '포도':'0806', '체리':'080929', '키위':'081050', '블루베리':'081040', '아보카도':'080440', '멜론':'080719' };
 let chartVol = null, chartImpVol = null;
 
+function parseAIText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let headline = '', bullets = [], comment = '';
+  lines.forEach(line => {
+    if (line.startsWith('코멘트:') || line.startsWith('코멘트 :')) {
+      comment = line.replace(/^코멘트\s*:\s*/, '');
+    } else if (line.startsWith('- ') || line.startsWith('•')) {
+      bullets.push(line.replace(/^[-•]\s*/, ''));
+    } else if (!headline) {
+      headline = line;
+    } else {
+      // 형식 안 지켜진 여분 텍스트는 코멘트로 흡수
+      comment = (comment ? comment + ' ' : '') + line;
+    }
+  });
+  const bold = s => s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return { headline: bold(headline), bullets: bullets.map(bold), comment: bold(comment) };
+}
+
 async function loadAIBriefing() {
   const el = document.getElementById('aiBody');
   el.innerHTML = '<div class="skel" style="height:70px;"></div>';
@@ -707,19 +726,21 @@ async function loadAIBriefing() {
       return;
     }
     const genTime = new Date(j.generatedAt).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
-    const footer = `<div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${j.stage === 'morning' ? '오전 속보' : j.stage === 'full' ? '전국 종합' : '수시 갱신'}</div>`;
+    const stageLabel = { morning:'오전 속보', midday:'점심 브리핑', afternoon:'오후 브리핑', evening:'저녁 브리핑' }[j.stage] || '수시 갱신';
+    const footer = `<div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${stageLabel}</div>`;
     const unlockKey = `unlocked:${state.item}|${state.origin}`;
-    const sentences = j.text.match(/[^.!?]+[.!?]+/g) || [j.text];
-    const teaser = sentences[0] || '';
-    const rest = sentences.slice(1).join(' ');
-    if (!rest || sessionStorage.getItem(unlockKey)) {
-      el.innerHTML = `<div>${j.text}</div>${footer}`;
+    const p = parseAIText(j.text);
+    const bulletsHtml = p.bullets.length ? `<ul style="margin:8px 0 0;padding-left:18px;">${p.bullets.map(b=>`<li style="margin-bottom:5px;">${b}</li>`).join('')}</ul>` : '';
+    const commentHtml = p.comment ? `<div style="margin-top:10px;padding:9px 10px;background:rgba(91,74,156,0.08);border-radius:10px;border-left:3px solid #5B4A9C;"><b>코멘트</b> ${p.comment}</div>` : '';
+    const headlineHtml = `<div style="font-size:14px;font-weight:800;">${p.headline}</div>`;
+    if (sessionStorage.getItem(unlockKey)) {
+      el.innerHTML = `${headlineHtml}${bulletsHtml}${commentHtml}${footer}`;
       return;
     }
     el.innerHTML = `
-      <div>${teaser}</div>
+      ${headlineHtml}
       <div class="adgate">
-        <div class="locked">${rest}</div>
+        <div class="locked">${bulletsHtml}${commentHtml}</div>
         <div class="lockbtn">
           <button onclick="unlockAIBriefing('${unlockKey}')">▶ 광고 보고 전체 보기</button>
           <div class="hint">15초 광고 시청 후 바로 잠금 해제돼요</div>

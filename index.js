@@ -842,14 +842,16 @@ async function computeBriefing(item, origin) {
       const p = rows.reduce((a,r) => a + r.avgPricePerKg * r.volumeTons, 0) / (w || 1);
       return { price: Math.round(p), vol: Math.round(w*10)/10 };
     };
+    const boxKg = (origin === 'domestic' ? SERVER_BOX_KG.domestic : SERVER_BOX_KG.import)[item] || 10;
+    const fmtPrice = perKg => `${boxKg}kg 상자 약 ₩${Math.round(perKg*boxKg).toLocaleString()}(kg당 ₩${Math.round(perKg).toLocaleString()})`;
     const tw = weekStat(0), lw = weekStat(1);
     // ① 가격 동향
     if (tw && lw) {
       const chg = Math.round((tw.price - lw.price) / lw.price * 1000) / 10;
       const dir = chg > 1 ? `지난주 대비 ${chg}% 상승` : chg < -1 ? `지난주 대비 ${Math.abs(chg)}% 하락` : '지난주와 비슷한 보합';
-      lines.push({ tag: '가격', text: `이번주 평균 ₩${tw.price.toLocaleString()}/kg, ${dir} 흐름입니다.` });
+      lines.push({ tag: '가격', text: `이번주 평균 ${fmtPrice(tw.price)}, ${dir} 흐름입니다.` });
     } else {
-      lines.push({ tag: '가격', text: `최근 거래일(${lastRow.date}) 평균 ₩${lastRow.avgPricePerKg.toLocaleString()}/kg입니다.` });
+      lines.push({ tag: '가격', text: `최근 거래일(${lastRow.date}) 평균 ${fmtPrice(lastRow.avgPricePerKg)}입니다.` });
     }
     // ② 물량 동향
     if (tw && lw && lw.vol > 0) {
@@ -859,7 +861,6 @@ async function computeBriefing(item, origin) {
     }
     // ③ 시장 격차 (최근 거래일 기준) + 차익기회 신호
     const actions = [];
-    const boxKg = SERVER_BOX_KG[origin === 'domestic' ? 'domestic' : 'import'][item] || 10;
     try {
       let arr = await fetchTradesDay(lastRow.date, fc.l, fc.m);
       arr = applyOriginFilter(arr, item, origin);
@@ -877,7 +878,7 @@ async function computeBriefing(item, origin) {
       if (mkts.length >= 2) {
         const lo = mkts[0], hi = mkts[mkts.length-1];
         const gap = Math.round((hi.avg - lo.avg) / lo.avg * 100);
-        lines.push({ tag: '시장', text: `${lastRow.date} 기준 최저가는 ${lo.nm}(₩${lo.avg.toLocaleString()}/kg), 최고가는 ${hi.nm}(₩${hi.avg.toLocaleString()}/kg)로 시장 간 ${gap}% 격차가 있습니다.` });
+        lines.push({ tag: '시장', text: `${lastRow.date} 기준 최저가는 ${lo.nm}(${fmtPrice(lo.avg)}), 최고가는 ${hi.nm}(${fmtPrice(hi.avg)})로 시장 간 ${gap}% 격차가 있습니다.` });
         if (gap >= 10) {
           const savePerBox = Math.round((hi.avg - lo.avg) * boxKg);
           actions.push({ tag: '차익기회', text: `${lo.nm} 사입 시 ${hi.nm} 대비 ${boxKg}kg 상자당 약 ₩${savePerBox.toLocaleString()} 절감 가능합니다. 단, 운송비·상장수수료·품질 차이는 반영되지 않았으니 실비 계산 후 판단하세요.` });
@@ -989,8 +990,10 @@ async function callGemini(prompt, useSearch = true) {
 async function generateAIBriefing(item, origin) {
   const brief = await computeBriefing(item, origin);
   if (!brief.success) return null;
+  const boxKg = (origin === 'domestic' ? SERVER_BOX_KG.domestic : SERVER_BOX_KG.import)[item] || 10;
   const factSheet = {
     품목: item, 구분: origin === 'domestic' ? '국산' : '수입', 기준일: brief.date,
+    상자중량: `${boxKg}kg`,
     관측: brief.lines.map(l => `[${l.tag}] ${l.text}`),
     신호: brief.actions.map(a => `[${a.tag}] ${a.text}`)
   };
@@ -1000,11 +1003,21 @@ ${JSON.stringify(factSheet, null, 2)}
 
 규칙(반드시 지켜):
 1. 위 "관측"과 "신호"에 있는 숫자는 그대로 인용해도 되지만, 여기 없는 새로운 가격/물량/퍼센트 수치를 절대 만들어내지 마.
-2. 구글 검색으로 이 품목의 최근 작황·수입동향·환율·명절수요 등 실제 뉴스가 있으면 찾아서 반영하고, 없으면 억지로 지어내지 말고 그냥 언급하지 마.
-3. 검색으로 찾은 사실은 출처를 알 수 있게 자연스럽게 언급해(예: "최근 보도에 따르면").
-4. 분량은 3~4문장, 한국어 존댓말, 바이어가 읽고 바로 판단할 수 있는 실전 톤으로.
-5. 확실하지 않은 건 "~로 보입니다", "~할 가능성이 있습니다"처럼 단정하지 마.
-6. 마지막 문장은 반드시 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다." 로 끝내.`;
+2. 단위: 이 시장은 실무에서 "${boxKg}kg 상자" 단위로 거래돼. 가격을 말할 땐 **상자 가격을 먼저** 말하고, kg당 단가는 괄호로 보조 표기해(예: "13kg 상자 약 ₩21,000(kg당 ₩1,615)"). 상자 가격 = kg당 가격 × ${boxKg}로 직접 계산해.
+3. 구글 검색으로 이 품목의 최근 작황·수입동향·환율·명절수요 등 실제 뉴스가 있으면 찾아서 반영하고, 없으면 억지로 지어내지 말고 그냥 언급하지 마. 찾은 사실은 출처를 알 수 있게 자연스럽게 언급해(예: "최근 보도에 따르면").
+4. 확실하지 않은 건 "~로 보입니다", "~할 가능성이 있습니다"처럼 단정하지 마.
+5. 사입 타이밍에만 매몰되지 말고, 가격이 왜 이렇게 움직이는지와 앞으로의 방향성(오를지/내릴지/횡보할지와 그 이유)을 균형있게 다뤄.
+
+출력 형식은 반드시 아래 구조를 그대로 따라(마크다운 기호 포함해서):
+
+한 줄 헤드라인(굵게, 핵심 결론 요약. 예: **바나나, 물량감소에 하락압력 상쇄되며 보합**)
+
+- 불릿 1 (가격/상자단가 팩트)
+- 불릿 2 (물량 또는 시장 팩트)
+- 불릿 3 (검색으로 찾은 맥락: 작황/환율/정책 등, 있을 때만)
+- 불릿 4 (있다면: 시장간 격차나 추가 신호)
+
+코멘트: 위 내용을 종합한 2~3문장. 방향성(상승/하락/횡보 전망과 이유) 중심으로 쓰고, 사입 타이밍 언급은 있어도 되지만 그것만 다루지는 마. 마지막에 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다."로 끝내.`;
   const text = await callGemini(prompt, true);
   return text || null;
 }
@@ -1031,21 +1044,20 @@ async function runAIBriefingBatch(stage) {
 const ITEMS_IMPORT_SERVER = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
 const ITEMS_DOMESTIC_SERVER = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
 
-// 스케줄러: 매분 KST 시각 체크, 8시엔 오전 속보(개장 빠른 시장 위주), 11시엔 전국종합 - 하루 한 번씩만 실행
-let lastRunDate = { morning: null, full: null };
+// 스케줄러: 매분 KST 시각 체크, 평일 하루 4번(8/11/14/17시) 배치 실행 - 업데이트 없어도 재생성해서 신선도 유지
+const BATCH_HOURS = [8, 11, 14, 17];
+const BATCH_STAGE_NAME = { 8: 'morning', 11: 'midday', 14: 'afternoon', 17: 'evening' };
+let lastRunDate = {};
 setInterval(() => {
   const kst = new Date(Date.now() + 9*3600*1000);
   const dateStr = kst.toISOString().slice(0,10);
   const h = kst.getUTCHours(), min = kst.getUTCMinutes();
   const isWeekday = kst.getUTCDay() !== 0; // 일요일 휴장
-  if (isWeekday && h === 8 && min === 0 && lastRunDate.morning !== dateStr) {
-    lastRunDate.morning = dateStr;
-    runAIBriefingBatch('morning').catch(e => console.log('배치 에러', e.message));
-  }
-  if (isWeekday && h === 11 && min === 0 && lastRunDate.full !== dateStr) {
-    lastRunDate.full = dateStr;
-    runAIBriefingBatch('full').catch(e => console.log('배치 에러', e.message));
-  }
+  if (!isWeekday || min !== 0 || !BATCH_HOURS.includes(h)) return;
+  const stage = BATCH_STAGE_NAME[h];
+  if (lastRunDate[stage] === dateStr) return;
+  lastRunDate[stage] = dateStr;
+  runAIBriefingBatch(stage).catch(e => console.log('배치 에러', e.message));
 }, 60 * 1000);
 
 app.get('/api/ai-briefing', (req, res) => {
