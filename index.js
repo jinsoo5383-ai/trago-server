@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const xml2js = require('xml2js');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
@@ -970,7 +971,32 @@ app.get('/api/briefing', async (req, res) => {
 // 설계 원칙: 사용자가 볼 때마다 부르지 않고 하루 2번(오전 속보/전국 종합) 배치로 생성해서 캐시.
 // 환각 방지: 우리가 계산한 숫자(lines/actions)를 프롬프트에 그대로 박아넣고 "이 숫자 안에서만 해석, 새 숫자 창작 금지" 강제.
 // 구글 검색 그라운딩을 켜서 실제 뉴스 기반으로만 맥락(작황/환율/명절)을 채우게 함.
-const aiBriefingCache = new Map(); // key: item|origin → { text, generatedAt, stage }
+// 파일 기반 저장소: 재시작해도 안 날아가게, 그리고 매 생성 결과를 히스토리로 계속 쌓음
+// 주의: Railway는 기본적으로 파일시스템이 매 배포(재빌드)마다 초기화됨. git push로 재배포될 때마다 리셋되는 걸 막으려면
+// Railway 대시보드에서 이 서비스에 Volume(영구 디스크)을 추가하고 마운트 경로를 이 프로젝트 폴더로 잡아줘야 함.
+// Volume 없이도 서버가 살아있는 동안(재시작 없이)은 계속 쌓이고 디스크에도 남으니, 프로세스 크래시엔 안전함.
+const AI_STORE_PATH = __dirname + '/ai-briefing-store.json';
+let aiStore = {}; // key(item|origin) → { latest: {text, generatedAt, stage}, history: [...] }
+try {
+  aiStore = JSON.parse(fs.readFileSync(AI_STORE_PATH, 'utf8'));
+  console.log(`[AI저장소] 기존 데이터 로드: ${Object.keys(aiStore).length}개 조합`);
+} catch (e) {
+  aiStore = {};
+}
+function saveAIStore() {
+  try { fs.writeFileSync(AI_STORE_PATH, JSON.stringify(aiStore)); }
+  catch (e) { console.log('[AI저장소] 저장 실패', e.message); }
+}
+function setAIBriefing(key, data) {
+  if (!aiStore[key]) aiStore[key] = { latest: null, history: [] };
+  aiStore[key].latest = data;
+  aiStore[key].history.push(data);
+  if (aiStore[key].history.length > 60) aiStore[key].history.shift(); // 최근 60개(약 2주치)만 보관
+  saveAIStore();
+}
+function getAIBriefing(key) {
+  return aiStore[key]?.latest || null;
+}
 
 async function callGemini(prompt, useSearch = true) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
@@ -1032,7 +1058,7 @@ async function runAIBriefingBatch(stage) {
     try {
       const text = await generateAIBriefing(item, origin);
       if (text) {
-        aiBriefingCache.set(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
+        setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
       }
     } catch (e) {
       console.log(`[AI브리핑] 실패: ${item}/${origin} - ${e.message}`);
@@ -1063,9 +1089,18 @@ setInterval(() => {
 app.get('/api/ai-briefing', (req, res) => {
   const item = req.query.item || '바나나';
   const origin = req.query.origin || 'import';
-  const cached = aiBriefingCache.get(`${item}|${origin}`);
-  if (!cached) return res.json({ success: false, error: '아직 생성된 분석이 없어요. 오전 8시/11시 배치를 기다려주세요.' });
+  const cached = getAIBriefing(`${item}|${origin}`);
+  if (!cached) return res.json({ success: false, error: '이 품목은 아직 한 번도 분석이 생성되지 않았어요. 다음 배치(8/11/14/17시)를 기다리거나, /api/ai-briefing/test로 즉시 생성해보세요.' });
   res.json({ success: true, item, origin, ...cached });
+});
+
+// 히스토리 조회 (최근 것부터) - 나중에 "지난 분석 보기" 기능에 쓸 수 있음
+app.get('/api/ai-briefing/history', (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const entry = aiStore[`${item}|${origin}`];
+  if (!entry) return res.json({ success: false, error: '기록 없음' });
+  res.json({ success: true, item, origin, count: entry.history.length, history: [...entry.history].reverse() });
 });
 
 // 수동 트리거 (테스트/관리자용) - 대기 없이 바로 특정 품목 하나만 생성
@@ -1075,7 +1110,7 @@ app.get('/api/ai-briefing/test', async (req, res) => {
   try {
     const text = await generateAIBriefing(item, origin);
     if (!text) return res.json({ success: false, error: '데이터 부족으로 생성 실패' });
-    aiBriefingCache.set(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
+    setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
     res.json({ success: true, item, origin, text });
   } catch (e) {
     res.json({ success: false, error: e.message });
