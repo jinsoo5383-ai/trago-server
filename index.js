@@ -1075,9 +1075,9 @@ async function runAIBriefingBatch(stage) {
 const ITEMS_IMPORT_SERVER = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
 const ITEMS_DOMESTIC_SERVER = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
 
-// 스케줄러: 매분 KST 시각 체크, 평일 하루 4번(8/11/14/17시) 배치 실행 - 업데이트 없어도 재생성해서 신선도 유지
-const BATCH_HOURS = [8, 11, 14, 17];
-const BATCH_STAGE_NAME = { 8: 'morning', 11: 'midday', 14: 'afternoon', 17: 'evening' };
+// 스케줄러: 매분 KST 시각 체크, 평일 하루 11번(2\/3\/4시간 간격) 배치 실행 - 업데이트 없어도 재생성해서 신선도 유지
+const BATCH_HOURS = [0, 2, 5, 8, 10, 12, 14, 16, 18, 20, 22];
+const BATCH_STAGE_NAME = { 0:'자정', 2:'새벽2시', 5:'새벽5시', 8:'오전8시', 10:'오전10시', 12:'정오', 14:'오후2시', 16:'오후4시', 18:'오후6시', 20:'오후8시', 22:'오후10시' };
 let lastRunDate = {};
 setInterval(() => {
   const kst = new Date(Date.now() + 9*3600*1000);
@@ -1095,7 +1095,7 @@ app.get('/api/ai-briefing', (req, res) => {
   const item = req.query.item || '바나나';
   const origin = req.query.origin || 'import';
   const cached = getAIBriefing(`${item}|${origin}`);
-  if (!cached) return res.json({ success: false, error: '이 품목은 아직 한 번도 분석이 생성되지 않았어요. 다음 배치(8/11/14/17시)를 기다리거나, /api/ai-briefing/test로 즉시 생성해보세요.' });
+  if (!cached) return res.json({ success: false, error: '이 품목은 아직 한 번도 분석이 생성되지 않았어요. 다음 배치(2시간~4시간 간격)를 기다리거나, /api/ai-briefing/test로 즉시 생성해보세요.' });
   res.json({ success: true, item, origin, ...cached });
 });
 

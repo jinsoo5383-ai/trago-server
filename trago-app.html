@@ -371,10 +371,10 @@ main { flex:1; padding:12px 12px 84px; }
 
     <!-- 심층분석 -->
     <section class="tabpane" id="pane-insight">
-      <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">시세 데이터에 뉴스·작황·환율 맥락까지 더한 하루 4회(오전 8·11시, 오후 2·5시) 브리핑이에요.</div>
+      <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">시세 데이터에 뉴스·작황·환율 맥락까지 더한 하루 11회(2/3/4시간마다) 브리핑이에요.</div>
       <div class="ccard" style="background:linear-gradient(135deg,#F3F0FB,#FBFAF4);border-color:#DFD8F0;">
         <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
-        <div class="sub" id="aiSub">뉴스·작황 맥락까지 반영한 하루 4회 브리핑</div>
+        <div class="sub" id="aiSub">뉴스·작황 맥락까지 반영한 하루 11회 브리핑</div>
         <div id="aiBody" style="margin-top:10px;font-size:13px;line-height:1.65;color:var(--ink);"></div>
       </div>
     </section>
@@ -725,7 +725,7 @@ async function loadAIBriefing() {
       return;
     }
     const genTime = new Date(j.generatedAt).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
-    const stageLabel = { morning:'오전 속보', midday:'점심 브리핑', afternoon:'오후 브리핑', evening:'저녁 브리핑' }[j.stage] || '수시 갱신';
+    const stageLabel = j.stage === 'manual' ? '수시 갱신' : (j.stage || '수시 갱신');
     const footer = `<div style="font-size:10px;color:var(--faint);margin-top:10px;">${genTime} 자동생성 · ${stageLabel}</div>`;
     const unlockKey = `unlocked:${state.item}|${state.origin}`;
     const p = parseAIText(j.text);
