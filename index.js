@@ -1002,7 +1002,7 @@ async function callGemini(prompt, useSearch = true) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2000, thinkingConfig: { thinkingBudget: 512 } }
+    generationConfig: { temperature: 0.3, maxOutputTokens: 3500, thinkingConfig: { thinkingBudget: 400 } }
   };
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
