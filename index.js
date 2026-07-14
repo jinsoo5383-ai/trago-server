@@ -975,7 +975,17 @@ app.get('/api/briefing', async (req, res) => {
 // 주의: Railway는 기본적으로 파일시스템이 매 배포(재빌드)마다 초기화됨. git push로 재배포될 때마다 리셋되는 걸 막으려면
 // Railway 대시보드에서 이 서비스에 Volume(영구 디스크)을 추가하고 마운트 경로를 이 프로젝트 폴더로 잡아줘야 함.
 // Volume 없이도 서버가 살아있는 동안(재시작 없이)은 계속 쌓이고 디스크에도 남으니, 프로세스 크래시엔 안전함.
-const AI_STORE_PATH = __dirname + '/ai-briefing-store.json';
+// Railway 볼륨 마운트 경로(/app/data)에 저장 - 이제 push/재배포해도 데이터 안 날아감
+// 로컬 개발환경 등 그 경로가 없을 때(볼륨 미연결)는 프로젝트 폴더로 폴백
+const VOLUME_DIR = '/app/data';
+let AI_STORE_PATH;
+try {
+  if (!fs.existsSync(VOLUME_DIR)) fs.mkdirSync(VOLUME_DIR, { recursive: true });
+  AI_STORE_PATH = VOLUME_DIR + '/ai-briefing-store.json';
+} catch (e) {
+  AI_STORE_PATH = __dirname + '/ai-briefing-store.json'; // 볼륨 없는 환경 폴백
+}
+console.log(`[AI저장소] 저장 경로: ${AI_STORE_PATH}`);
 let aiStore = {}; // key(item|origin) → { latest: {text, generatedAt, stage}, history: [...] }
 try {
   aiStore = JSON.parse(fs.readFileSync(AI_STORE_PATH, 'utf8'));
