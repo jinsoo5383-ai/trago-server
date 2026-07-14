@@ -1043,7 +1043,12 @@ ${JSON.stringify(factSheet, null, 2)}
 - 불릿 3 (검색으로 찾은 맥락: 작황/환율/정책 등, 있을 때만)
 - 불릿 4 (있다면: 시장간 격차나 추가 신호)
 
-코멘트: 위 내용을 종합한 2~3문장. 방향성(상승/하락/횡보 전망과 이유) 중심으로 쓰고, 사입 타이밍 언급은 있어도 되지만 그것만 다루지는 마. 마지막에 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다."로 끝내.`;
+코멘트:
+1. [방향성 전망 한 문장 - 상승/하락/횡보 중 뭔지와 그 이유]
+2. [그렇게 보는 근거나 주의할 변수 한 문장]
+3. [있다면: 대응 방향 한 문장]
+
+각 코멘트 항목은 한 문장으로 짧게 끊어. 절대 길게 늘어놓지 마. 마지막 항목 다음 줄에 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다."만 단독으로 써.`;
   const text = await callGemini(prompt, true);
   return text || null;
 }
@@ -1115,6 +1120,32 @@ app.get('/api/ai-briefing/test', async (req, res) => {
   } catch (e) {
     res.json({ success: false, error: e.message });
   }
+});
+
+// 전체 품목×원산지 한번에 생성 - 시간 걸리니 백그라운드로 돌리고 바로 응답, 진행상황은 /status로 확인
+let batchRunning = false, batchProgress = { done: 0, total: 0, current: '' };
+app.get('/api/ai-briefing/generate-all', (req, res) => {
+  if (batchRunning) return res.json({ success: false, error: '이미 실행 중이에요. /api/ai-briefing/generate-all/status로 진행상황 확인하세요.' });
+  batchRunning = true;
+  (async () => {
+    const combos = [];
+    for (const it of ITEMS_IMPORT_SERVER) combos.push([it, 'import']);
+    for (const it of ITEMS_DOMESTIC_SERVER) combos.push([it, 'domestic']);
+    batchProgress = { done: 0, total: combos.length, current: '' };
+    for (const [item, origin] of combos) {
+      batchProgress.current = `${item}(${origin})`;
+      try {
+        const text = await generateAIBriefing(item, origin);
+        if (text) setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
+      } catch (e) { console.log(`[전체생성] 실패: ${item}/${origin} - ${e.message}`); }
+      batchProgress.done++;
+    }
+    batchRunning = false;
+  })();
+  res.json({ success: true, message: `${ITEMS_IMPORT_SERVER.length + ITEMS_DOMESTIC_SERVER.length}개 조합 생성 시작함. 몇 분 걸려요. /api/ai-briefing/generate-all/status로 진행상황 확인하세요.` });
+});
+app.get('/api/ai-briefing/generate-all/status', (req, res) => {
+  res.json({ running: batchRunning, ...batchProgress });
 });
 
 // ── Trago 모바일 앱 ──

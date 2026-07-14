@@ -699,21 +699,20 @@ let chartVol = null, chartImpVol = null;
 
 function parseAIText(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  let headline = '', bullets = [], comment = '';
+  let headline = '', bullets = [], commentLines = [], inComment = false;
   lines.forEach(line => {
-    if (line.startsWith('코멘트:') || line.startsWith('코멘트 :')) {
-      comment = line.replace(/^코멘트\s*:\s*/, '');
+    if (/^코멘트\s*:?\s*$/.test(line)) { inComment = true; return; }
+    if (inComment) {
+      const m = line.match(/^\d+[.)]\s*(.+)/);
+      commentLines.push(m ? m[1] : line);
     } else if (line.startsWith('- ') || line.startsWith('•')) {
       bullets.push(line.replace(/^[-•]\s*/, ''));
     } else if (!headline) {
       headline = line;
-    } else {
-      // 형식 안 지켜진 여분 텍스트는 코멘트로 흡수
-      comment = (comment ? comment + ' ' : '') + line;
     }
   });
   const bold = s => s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  return { headline: bold(headline), bullets: bullets.map(bold), comment: bold(comment) };
+  return { headline: bold(headline), bullets: bullets.map(bold), commentLines: commentLines.map(bold) };
 }
 
 async function loadAIBriefing() {
@@ -731,7 +730,10 @@ async function loadAIBriefing() {
     const unlockKey = `unlocked:${state.item}|${state.origin}`;
     const p = parseAIText(j.text);
     const bulletsHtml = p.bullets.length ? `<ul style="margin:8px 0 0;padding-left:18px;">${p.bullets.map(b=>`<li style="margin-bottom:5px;">${b}</li>`).join('')}</ul>` : '';
-    const commentHtml = p.comment ? `<div style="margin-top:10px;padding:9px 10px;background:rgba(91,74,156,0.08);border-radius:10px;border-left:3px solid #5B4A9C;"><b>코멘트</b> ${p.comment}</div>` : '';
+    const commentHtml = p.commentLines.length ? `<div style="margin-top:10px;padding:10px 12px;background:rgba(91,74,156,0.08);border-radius:10px;border-left:3px solid #5B4A9C;">
+      <b style="font-size:12.5px;">코멘트</b>
+      <ol style="margin:6px 0 0;padding-left:18px;">${p.commentLines.map(c=>`<li style="margin-bottom:4px;">${c}</li>`).join('')}</ol>
+    </div>` : '';
     const headlineHtml = `<div style="font-size:14px;font-weight:800;">${p.headline}</div>`;
     if (sessionStorage.getItem(unlockKey)) {
       el.innerHTML = `${headlineHtml}${bulletsHtml}${commentHtml}${footer}`;
