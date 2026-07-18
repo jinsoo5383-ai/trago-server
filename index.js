@@ -1016,7 +1016,7 @@ async function callGemini(prompt, useSearch = true) {
   };
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_KEY}`,
     body, { timeout: 45000 }
   );
   const parts = r.data?.candidates?.[0]?.content?.parts || [];
@@ -1088,8 +1088,8 @@ const ITEMS_DOMESTIC_SERVER = ['수박','참외','멜론','복숭아','자두','
 // 스케줄러: cron-job.org(외부)가 2시간마다 /api/ai-briefing/generate-all을 직접 호출하는 방식으로 전환함.
 // 서버 내부 타이머(setInterval)는 꺼둠 - 켜놓으면 외부 크론이랑 겹쳐서 동시에 두 배로 돌다가
 // Gemini 요청제한(429)에 걸리는 문제가 실제로 발생했음(2026-07-18). 스케줄은 cron-job.org 대시보드에서 관리.
-const BATCH_HOURS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]; // 참고용(외부 크론 설정과 동일하게 맞춰둠)
-const BATCH_STAGE_NAME = { 0:'자정', 2:'새벽2시', 4:'새벽4시', 6:'새벽6시', 8:'오전8시', 10:'오전10시', 12:'정오', 14:'오후2시', 16:'오후4시', 18:'오후6시', 20:'오후8시', 22:'오후10시' };
+const BATCH_HOURS = [9, 21]; // 참고용(외부 크론 설정과 동일하게 맞춰둠) - 하루 2회로 축소(Gemini 비용 절감)
+const BATCH_STAGE_NAME = { 9:'오전9시', 21:'오후9시' };
 
 app.get('/api/ai-briefing', (req, res) => {
   const item = req.query.item || '바나나';
