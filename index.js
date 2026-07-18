@@ -1118,7 +1118,7 @@ app.get('/api/ai-briefing/test', async (req, res) => {
     setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
     res.json({ success: true, item, origin, text });
   } catch (e) {
-    res.json({ success: false, error: e.message });
+    res.json({ success: false, error: e.message, detail: e.response?.data || null });
   }
 });
 
