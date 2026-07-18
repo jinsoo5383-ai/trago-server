@@ -327,6 +327,11 @@ main { flex:1; padding:12px 12px 84px; }
       </div>
       <select id="vrtySelect" onchange="loadNation()" class="selectbox"><option value="">전체 구분</option></select>
       <div id="nationList"></div>
+      <div class="ccard" style="margin-top:14px;">
+        <h3 id="movesTitle">품목별 주간 등락</h3>
+        <div class="sub">지난주 대비 · 싸진 순 · 탭하면 해당 품목으로 이동</div>
+        <div id="movesList" style="margin-top:10px;"></div>
+      </div>
     </section>
 
     <!-- 브로커 -->
@@ -373,7 +378,10 @@ main { flex:1; padding:12px 12px 84px; }
     <section class="tabpane" id="pane-insight">
       <div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5;">시세 데이터에 뉴스·작황·환율 맥락까지 더한 심층 브리핑이에요.</div>
       <div class="ccard" style="background:linear-gradient(135deg,#F3F0FB,#FBFAF4);border-color:#DFD8F0;">
-        <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <h3 id="aiTitle" style="color:#5B4A9C;">심층 시황 분석</h3>
+          <button onclick="shareAIBriefing()" style="background:none;border:1px solid #DFD8F0;border-radius:10px;padding:5px 12px;font-size:12px;font-weight:700;color:#5B4A9C;font-family:inherit;cursor:pointer;">📤 공유</button>
+        </div>
         <div class="sub" id="aiSub">뉴스·작황·환율 맥락까지 반영한 심층 브리핑</div>
         <div id="aiBody" style="margin-top:10px;font-size:13px;line-height:1.65;color:var(--ink);"></div>
       </div>
@@ -741,6 +749,7 @@ async function loadAIBriefing() {
       <ol style="margin:6px 0 0;padding-left:18px;">${p.commentLines.map(c=>`<li style="margin-bottom:4px;">${c}</li>`).join('')}</ol>
     </div>` : '';
     const headlineHtml = `<div style="font-size:14px;font-weight:800;">${p.headline}</div>`;
+    lastAIBriefing = { item: myItem, headline: p.headline.replace(/<[^>]+>/g,''), bullets: p.bullets.map(b=>b.replace(/<[^>]+>/g,'')), comments: p.commentLines.map(c=>c.replace(/<[^>]+>/g,'')), genTime };
     if (myReqId !== aiBriefingReqId) return; // 렌더 직전에도 한 번 더 체크
     // 저장 안 함: 탭을 다시 열거나 품목을 바꿀 때마다 매번 광고 게이트가 새로 걸림
     el.innerHTML = `
@@ -756,6 +765,89 @@ async function loadAIBriefing() {
   } catch(e) {
     if (myReqId === aiBriefingReqId) el.innerHTML = '<span style="color:var(--sub);">불러오기 실패</span>';
   }
+}
+
+// ── 공유 카드: 브리핑을 카톡 등으로 공유 가능한 이미지로 생성 ──
+let lastAIBriefing = null;
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+async function shareAIBriefing() {
+  if (!lastAIBriefing) { alert('먼저 분석을 불러와주세요.'); return; }
+  const b = lastAIBriefing;
+  const W = 720, PAD = 44, CW = W - PAD * 2;
+  // 1차: 줄 계산
+  const scratch = document.createElement('canvas').getContext('2d');
+  scratch.font = '800 34px -apple-system, sans-serif';
+  const headLines = wrapCanvasText(scratch, b.headline, CW);
+  scratch.font = '500 24px -apple-system, sans-serif';
+  const bulletLines = [];
+  b.bullets.slice(0, 3).forEach(t => {
+    const ls = wrapCanvasText(scratch, t, CW - 26);
+    ls.forEach((l, i) => bulletLines.push({ text: l, first: i === 0 }));
+  });
+  const H = 150 + headLines.length * 46 + 24 + bulletLines.length * 36 + 110;
+  // 2차: 실제 그리기
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  // 배경
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#F3F0FB'); grad.addColorStop(1, '#FBFAF4');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  // 헤더
+  ctx.fillStyle = '#157A5B';
+  ctx.font = '800 30px -apple-system, sans-serif';
+  ctx.fillText('Trago', PAD, 62);
+  ctx.fillStyle = '#6E6B60';
+  ctx.font = '600 20px -apple-system, sans-serif';
+  ctx.fillText('과일 실시간 시세 · 심층 시황', PAD + 96, 62);
+  ctx.fillStyle = '#5B4A9C';
+  ctx.font = '800 26px -apple-system, sans-serif';
+  ctx.fillText(`${b.item}`, PAD, 108);
+  // 헤드라인
+  let y = 150;
+  ctx.fillStyle = '#1F241F';
+  ctx.font = '800 34px -apple-system, sans-serif';
+  headLines.forEach(l => { ctx.fillText(l, PAD, y); y += 46; });
+  y += 12;
+  // 불릿
+  ctx.font = '500 24px -apple-system, sans-serif';
+  ctx.fillStyle = '#3A3F3A';
+  bulletLines.forEach(l => {
+    if (l.first) { ctx.fillStyle = '#157A5B'; ctx.fillText('•', PAD, y); ctx.fillStyle = '#3A3F3A'; }
+    ctx.fillText(l.text, PAD + 26, y);
+    y += 36;
+  });
+  // 푸터
+  y = H - 46;
+  ctx.fillStyle = '#A2A094';
+  ctx.font = '500 18px -apple-system, sans-serif';
+  ctx.fillText(`${b.genTime} 자동생성 · 참고용 · fruitbro-production.up.railway.app/app`, PAD, y);
+  // 공유
+  cv.toBlob(async blob => {
+    if (!blob) return;
+    const file = new File([blob], `trago-${b.item}.png`, { type: 'image/png' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Trago ${b.item} 시황` });
+        return;
+      }
+    } catch (e) { /* 공유 취소 등 - 다운로드로 폴백 */ }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `trago-${b.item}.png`;
+    a.click();
+  }, 'image/png');
 }
 
 function unlockAIBriefing(btn) {
@@ -895,9 +987,39 @@ async function loadStats() {
 }
 
 // ── 전국 ──
+// 품목별 주간 등락 (아카이브 기반)
+async function loadWeeklyMoves() {
+  const el = document.getElementById('movesList');
+  if (!el) return;
+  try {
+    const j = await cachedFetch(`${SERVER}/api/weekly-moves?origin=${state.origin}`);
+    if (!j.success || !j.moves?.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--faint);padding:8px 0;">데이터가 쌓이는 중이에요. 하루 이틀 뒤부터 표시돼요.</div>';
+      return;
+    }
+    el.innerHTML = j.moves.map(m => {
+      const up = m.chgPct > 0;
+      const color = up ? 'var(--red)' : m.chgPct < 0 ? 'var(--blue)' : 'var(--faint)';
+      const arrow = up ? '▲' : m.chgPct < 0 ? '▼' : '─';
+      const active = m.item === state.item;
+      return `
+      <div onclick="pickItem('${m.item}')" style="display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:0.5px solid #f1efe8;cursor:pointer;border-radius:8px;${active ? 'background:rgba(21,122,91,0.07);' : ''}">
+        <div style="flex:1;font-size:13.5px;font-weight:${active ? '800' : '600'};">${m.item}</div>
+        <div style="text-align:right;font-variant-numeric:tabular-nums;">
+          <div style="font-size:13px;font-weight:700;">₩${m.thisWeekBox.toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;"> /${m.boxKg}kg상자</span></div>
+        </div>
+        <span style="width:56px;text-align:right;font-size:12px;font-weight:700;color:${color};font-variant-numeric:tabular-nums;">${arrow} ${Math.abs(m.chgPct)}%</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '';
+  }
+}
+
 async function loadNation() {
   const el = document.getElementById('nationList');
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  loadWeeklyMoves(); // 품목별 주간 등락 (백그라운드, 아카이브 기반이라 즉시)
   const vrty = document.getElementById('vrtySelect').value;
   try {
     const json = await cachedFetch(`${SERVER}/api/nationwide?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}${vrty?'&vrty='+encodeURIComponent(vrty):''}`);

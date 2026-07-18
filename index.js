@@ -1050,6 +1050,36 @@ app.get('/api/archive', (req, res) => {
   });
 });
 
+// 품목별 주간 등락: 아카이브만으로 계산 (외부 API 호출 없음) - "요즘 뭐가 싸졌나" 한눈에
+app.get('/api/weekly-moves', (req, res) => {
+  const origin = req.query.origin || 'import';
+  const items = origin === 'domestic' ? ITEMS_DOMESTIC_SERVER : ITEMS_IMPORT_SERVER;
+  const now = new Date(Date.now() + 9*3600*1000);
+  const dayStr = d => d.toISOString().slice(0,10);
+  const c1d = new Date(now); c1d.setUTCDate(c1d.getUTCDate() - 7);
+  const c2d = new Date(now); c2d.setUTCDate(c2d.getUTCDate() - 14);
+  const c0 = dayStr(now), c1 = dayStr(c1d), c2 = dayStr(c2d);
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const moves = [];
+  for (const item of items) {
+    const data = priceArchive[`${origin}|${item}`] || {};
+    const tw = [], lw = [];
+    for (const [date, d] of Object.entries(data)) {
+      if (date > c1 && date <= c0) tw.push(d.p);
+      else if (date > c2 && date <= c1) lw.push(d.p);
+    }
+    if (tw.length < 2 || lw.length < 2) continue; // 데이터 부족 품목은 제외
+    const t = avg(tw), l = avg(lw);
+    const boxKg = SERVER_BOX_KG[origin === 'domestic' ? 'domestic' : 'import'][item] || 10;
+    moves.push({
+      item, chgPct: Math.round((t - l) / l * 1000) / 10,
+      thisWeekKg: Math.round(t), thisWeekBox: Math.round(t * boxKg), boxKg
+    });
+  }
+  moves.sort((a, b) => a.chgPct - b.chgPct); // 싸진 순
+  res.json({ success: true, origin, moves });
+});
+
 // 전체 조합 백필 (최초 1회 또는 수동 보충용) - 백그라운드 실행
 let archiveBackfillRunning = false;
 app.get('/api/archive/backfill', (req, res) => {
