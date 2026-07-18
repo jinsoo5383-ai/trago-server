@@ -1085,21 +1085,11 @@ async function runAIBriefingBatch(stage) {
 const ITEMS_IMPORT_SERVER = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
 const ITEMS_DOMESTIC_SERVER = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
 
-// 스케줄러: 매분 KST 시각 체크, 평일 하루 11번(2\/3\/4시간 간격) 배치 실행 - 업데이트 없어도 재생성해서 신선도 유지
-const BATCH_HOURS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
+// 스케줄러: cron-job.org(외부)가 2시간마다 /api/ai-briefing/generate-all을 직접 호출하는 방식으로 전환함.
+// 서버 내부 타이머(setInterval)는 꺼둠 - 켜놓으면 외부 크론이랑 겹쳐서 동시에 두 배로 돌다가
+// Gemini 요청제한(429)에 걸리는 문제가 실제로 발생했음(2026-07-18). 스케줄은 cron-job.org 대시보드에서 관리.
+const BATCH_HOURS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]; // 참고용(외부 크론 설정과 동일하게 맞춰둠)
 const BATCH_STAGE_NAME = { 0:'자정', 2:'새벽2시', 4:'새벽4시', 6:'새벽6시', 8:'오전8시', 10:'오전10시', 12:'정오', 14:'오후2시', 16:'오후4시', 18:'오후6시', 20:'오후8시', 22:'오후10시' };
-let lastRunDate = {};
-setInterval(() => {
-  const kst = new Date(Date.now() + 9*3600*1000);
-  const dateStr = kst.toISOString().slice(0,10);
-  const h = kst.getUTCHours(), min = kst.getUTCMinutes();
-  const isWeekday = kst.getUTCDay() !== 0; // 일요일 휴장
-  if (!isWeekday || min !== 0 || !BATCH_HOURS.includes(h)) return;
-  const stage = BATCH_STAGE_NAME[h];
-  if (lastRunDate[stage] === dateStr) return;
-  lastRunDate[stage] = dateStr;
-  runAIBriefingBatch(stage).catch(e => console.log('배치 에러', e.message));
-}, 60 * 1000);
 
 app.get('/api/ai-briefing', (req, res) => {
   const item = req.query.item || '바나나';
@@ -1142,11 +1132,13 @@ app.get('/api/ai-briefing/generate-all', (req, res) => {
     for (const it of ITEMS_IMPORT_SERVER) combos.push([it, 'import']);
     for (const it of ITEMS_DOMESTIC_SERVER) combos.push([it, 'domestic']);
     batchProgress = { done: 0, total: combos.length, current: '' };
+    const kst = new Date(Date.now() + 9*3600*1000);
+    const stage = BATCH_STAGE_NAME[kst.getUTCHours()] || `${kst.getUTCHours()}시대`;
     for (const [item, origin] of combos) {
       batchProgress.current = `${item}(${origin})`;
       try {
         const text = await generateAIBriefing(item, origin);
-        if (text) setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
+        if (text) setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
       } catch (e) { console.log(`[전체생성] 실패: ${item}/${origin} - ${e.message}`); }
       batchProgress.done++;
     }
