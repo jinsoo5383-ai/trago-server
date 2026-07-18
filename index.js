@@ -1008,6 +1008,63 @@ function getAIBriefing(key) {
   return aiStore[key]?.latest || null;
 }
 
+// ── 가격 아카이브: 일별 집계(가격/물량/거래수)를 영구 누적 ──
+// 정부 실시간 API는 최근 몇 주치만 보관하고 과거를 지워버림. 우리가 매일 저장해두면
+// 시간이 지날수록 Trago만 가진 데이터("작년 이맘때 얼마였나")가 됨. 배치 돌 때마다 자동 누적.
+const PRICE_ARCHIVE_PATH = (fs.existsSync(VOLUME_DIR) ? VOLUME_DIR : __dirname) + '/price-archive.json';
+let priceArchive = {}; // key(origin|item) → { 'YYYY-MM-DD': {p: kg당가격, v: 물량톤, t: 거래수} }
+try {
+  priceArchive = JSON.parse(fs.readFileSync(PRICE_ARCHIVE_PATH, 'utf8'));
+  const totalDays = Object.values(priceArchive).reduce((a, o) => a + Object.keys(o).length, 0);
+  console.log(`[가격아카이브] 기존 데이터 로드: ${Object.keys(priceArchive).length}개 조합, 총 ${totalDays}일치`);
+} catch (e) { priceArchive = {}; }
+function savePriceArchive() {
+  try { fs.writeFileSync(PRICE_ARCHIVE_PATH, JSON.stringify(priceArchive)); }
+  catch (e) { console.log('[가격아카이브] 저장 실패', e.message); }
+}
+async function archiveDailyPrices(item, origin) {
+  const fc = FRUIT_CODES[item];
+  if (!fc) return 0;
+  const series = await computeDailySeries(fc, item, origin, 28); // 캐시 공유라 추가 API 호출 거의 없음
+  const key = `${origin}|${item}`;
+  if (!priceArchive[key]) priceArchive[key] = {};
+  let added = 0;
+  series.forEach(r => {
+    if (!priceArchive[key][r.date]) added++;
+    priceArchive[key][r.date] = { p: r.avgPricePerKg, v: r.volumeTons, t: r.trades };
+  });
+  if (series.length) savePriceArchive();
+  return added;
+}
+
+// 아카이브 조회 API
+app.get('/api/archive', (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const data = priceArchive[`${origin}|${item}`] || {};
+  const rows = Object.entries(data).map(([date, d]) => ({ date, ...d })).sort((a, b) => a.date.localeCompare(b.date));
+  res.json({
+    success: true, item, origin, count: rows.length,
+    firstDate: rows[0]?.date || null, lastDate: rows[rows.length - 1]?.date || null,
+    rows
+  });
+});
+
+// 전체 조합 백필 (최초 1회 또는 수동 보충용) - 백그라운드 실행
+let archiveBackfillRunning = false;
+app.get('/api/archive/backfill', (req, res) => {
+  if (archiveBackfillRunning) return res.json({ success: false, error: '이미 실행 중' });
+  archiveBackfillRunning = true;
+  (async () => {
+    let total = 0;
+    for (const it of ITEMS_IMPORT_SERVER) { try { total += await archiveDailyPrices(it, 'import'); } catch (e) {} }
+    for (const it of ITEMS_DOMESTIC_SERVER) { try { total += await archiveDailyPrices(it, 'domestic'); } catch (e) {} }
+    console.log(`[가격아카이브] 백필 완료: 신규 ${total}일치 추가`);
+    archiveBackfillRunning = false;
+  })();
+  res.json({ success: true, message: '백필 시작함. 수 분 소요. /api/archive?item=바나나로 확인하세요.' });
+});
+
 async function callGemini(prompt, useSearch = true) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
   const body = {
@@ -1136,6 +1193,7 @@ app.get('/api/ai-briefing/generate-all', (req, res) => {
     const stage = BATCH_STAGE_NAME[kst.getUTCHours()] || `${kst.getUTCHours()}시대`;
     for (const [item, origin] of combos) {
       batchProgress.current = `${item}(${origin})`;
+      try { await archiveDailyPrices(item, origin); } catch (e) { /* 아카이브 실패해도 계속 */ }
       try {
         const text = await generateAIBriefing(item, origin);
         if (text) setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
