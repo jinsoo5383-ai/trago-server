@@ -531,12 +531,15 @@ const ACTION_TAGS_BY_TAB = {
   nation: ['차익기회'],
   stats: ['재고전략']
 };
+let briefingReqId = 0;
 async function loadBriefing() {
+  const myReqId = ++briefingReqId;
   const slots = document.querySelectorAll('.briefslot');
   const key = `${state.item}|${state.origin}`;
   slots.forEach(s => { if (s.dataset.key !== key) s.innerHTML = '<div class="skel" style="height:80px;"></div>'; });
   try {
     const j = await cachedFetch(`${SERVER}/api/briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    if (myReqId !== briefingReqId) return; // 그 사이 다른 품목으로 넘어갔으면 버림
     slots.forEach(slot => {
       const tab = slot.id.replace('brief-', '');
       const allowedTags = BRIEF_TAGS_BY_TAB[tab] || [];
@@ -715,11 +718,15 @@ function parseAIText(text) {
   return { headline: bold(headline), bullets: bullets.map(bold), commentLines: commentLines.map(bold) };
 }
 
+let aiBriefingReqId = 0;
 async function loadAIBriefing() {
+  const myReqId = ++aiBriefingReqId;
+  const myItem = state.item, myOrigin = state.origin;
   const el = document.getElementById('aiBody');
   el.innerHTML = '<div class="skel" style="height:70px;"></div>';
   try {
-    const j = await cachedFetch(`${SERVER}/api/ai-briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    const j = await cachedFetch(`${SERVER}/api/ai-briefing?item=${encodeURIComponent(myItem)}&origin=${myOrigin}`);
+    if (myReqId !== aiBriefingReqId) return; // 그 사이 다른 품목으로 넘어갔으면 이 응답은 버림(경합 방지)
     if (!j.success) {
       el.innerHTML = `<span style="color:var(--sub);">${j.error}</span>`;
       return;
@@ -734,6 +741,7 @@ async function loadAIBriefing() {
       <ol style="margin:6px 0 0;padding-left:18px;">${p.commentLines.map(c=>`<li style="margin-bottom:4px;">${c}</li>`).join('')}</ol>
     </div>` : '';
     const headlineHtml = `<div style="font-size:14px;font-weight:800;">${p.headline}</div>`;
+    if (myReqId !== aiBriefingReqId) return; // 렌더 직전에도 한 번 더 체크
     // 저장 안 함: 탭을 다시 열거나 품목을 바꿀 때마다 매번 광고 게이트가 새로 걸림
     el.innerHTML = `
       ${headlineHtml}
@@ -746,7 +754,7 @@ async function loadAIBriefing() {
       </div>
       ${footer}`;
   } catch(e) {
-    el.innerHTML = '<span style="color:var(--sub);">불러오기 실패</span>';
+    if (myReqId === aiBriefingReqId) el.innerHTML = '<span style="color:var(--sub);">불러오기 실패</span>';
   }
 }
 
