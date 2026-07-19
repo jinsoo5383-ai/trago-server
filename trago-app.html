@@ -712,6 +712,7 @@ function parseAIText(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   let headline = '', bullets = [], commentLines = [], inComment = false;
   lines.forEach(line => {
+    if (/참고용이며 최종 판단/.test(line)) return; // 면책문구 라인 제거
     if (/^코멘트\s*:?\s*$/.test(line)) { inComment = true; return; }
     if (inComment) {
       const m = line.match(/^\d+[.)]\s*(.+)/);
@@ -785,17 +786,11 @@ async function shareAIBriefing() {
   if (!lastAIBriefing) { alert('먼저 분석을 불러와주세요.'); return; }
   const b = lastAIBriefing;
   const W = 720, PAD = 44, CW = W - PAD * 2;
-  // 1차: 줄 계산
+  // 1차: 줄 계산 (헤드라인만 노출 - 상세 분석은 앱에서 광고 보고 확인하는 구조 유지)
   const scratch = document.createElement('canvas').getContext('2d');
   scratch.font = '800 34px -apple-system, sans-serif';
   const headLines = wrapCanvasText(scratch, b.headline, CW);
-  scratch.font = '500 24px -apple-system, sans-serif';
-  const bulletLines = [];
-  b.bullets.slice(0, 3).forEach(t => {
-    const ls = wrapCanvasText(scratch, t, CW - 26);
-    ls.forEach((l, i) => bulletLines.push({ text: l, first: i === 0 }));
-  });
-  const H = 150 + headLines.length * 46 + 24 + bulletLines.length * 36 + 110;
+  const H = 150 + headLines.length * 46 + 24 + 70 + 110;
   // 2차: 실제 그리기
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -819,15 +814,11 @@ async function shareAIBriefing() {
   ctx.fillStyle = '#1F241F';
   ctx.font = '800 34px -apple-system, sans-serif';
   headLines.forEach(l => { ctx.fillText(l, PAD, y); y += 46; });
-  y += 12;
-  // 불릿
-  ctx.font = '500 24px -apple-system, sans-serif';
-  ctx.fillStyle = '#3A3F3A';
-  bulletLines.forEach(l => {
-    if (l.first) { ctx.fillStyle = '#157A5B'; ctx.fillText('•', PAD, y); ctx.fillStyle = '#3A3F3A'; }
-    ctx.fillText(l.text, PAD + 26, y);
-    y += 36;
-  });
+  y += 24;
+  // 앱 유도 CTA (본문은 카드에 안 담음)
+  ctx.fillStyle = '#5B4A9C';
+  ctx.font = '700 24px -apple-system, sans-serif';
+  ctx.fillText('📊 상세 분석과 코멘트는 Trago에서 확인하세요', PAD, y + 16);
   // 푸터
   y = H - 46;
   ctx.fillStyle = '#A2A094';

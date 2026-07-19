@@ -12,6 +12,7 @@ app.use(express.json());
 const API_KEY = '54fa6a4fb68a227e04811bbe2844d5332bc4319c3105190c5e20758bc45af3ae';
 const KAMIS_KEY = '4c4c7781-ee4a-44fc-bc34-c015aba41070';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash'; // Railway 환경변수로 교체 가능 (예: 더 싼 lite 모델)
 const KAMIS_ID = '7624';
 
 app.get('/', (req, res) => {
@@ -1103,14 +1104,20 @@ async function callGemini(prompt, useSearch = true) {
   };
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
     body, { timeout: 45000 }
   );
   const parts = r.data?.candidates?.[0]?.content?.parts || [];
   return parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
 }
 
-async function generateAIBriefing(item, origin) {
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+async function generateAIBriefing(item, origin, prevHash) {
   const brief = await computeBriefing(item, origin);
   if (!brief.success) return null;
   const boxKg = (origin === 'domestic' ? SERVER_BOX_KG.domestic : SERVER_BOX_KG.import)[item] || 10;
@@ -1120,6 +1127,8 @@ async function generateAIBriefing(item, origin) {
     관측: brief.lines.map(l => `[${l.tag}] ${l.text}`),
     신호: brief.actions.map(a => `[${a.tag}] ${a.text}`)
   };
+  const factHash = hashStr(JSON.stringify(factSheet));
+  if (prevHash && prevHash === factHash) return { skipped: true, hash: factHash }; // 데이터 변화 없음 → Gemini 호출 생략(비용 0)
   const prompt = `너는 한국 농산물 도매시장 전문 애널리스트야. 아래는 시스템이 실제 경락 데이터로 이미 계산해둔 사실이야.
 
 ${JSON.stringify(factSheet, null, 2)}
@@ -1145,9 +1154,9 @@ ${JSON.stringify(factSheet, null, 2)}
 2. (여기에 근거나 주의할 변수 한 문장. 예: "다만 환율이 계속 높으면 다음 달부터 수입 원가가 올라 가격이 다시 오를 수 있습니다.")
 3. (여기에 실용적 시사점 한 문장 - 사는 쪽/파는 쪽 모두에게. 예: "지금은 평소보다 저렴한 편이라 구매엔 유리한 시기고, 판매자라면 가격 반등 가능성을 감안해 재고를 여유있게 두는 것도 방법입니다.")
 
-위 괄호 안 내용은 형식 설명일 뿐이니 절대 그대로 출력하지 마. 그 자리에 실제 분석 문장만 채워써. 각 항목은 한 문장으로 짧게. 마지막 항목 다음 줄에 "이 분석은 참고용이며 최종 판단은 직접 하셔야 합니다."만 단독으로 써.`;
+위 괄호 안 내용은 형식 설명일 뿐이니 절대 그대로 출력하지 마. 그 자리에 실제 분석 문장만 채워써. 각 항목은 한 문장으로 짧게.`;
   const text = await callGemini(prompt, true);
-  return text || null;
+  return text ? { text, hash: factHash } : null;
 }
 
 async function runAIBriefingBatch(stage) {
@@ -1158,9 +1167,10 @@ async function runAIBriefingBatch(stage) {
   console.log(`[AI브리핑] ${stage} 배치 시작 - ${combos.length}개 조합`);
   for (const [item, origin] of combos) {
     try {
-      const text = await generateAIBriefing(item, origin);
-      if (text) {
-        setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
+      const prevHash = getAIBriefing(`${item}|${origin}`)?.factHash;
+      const r = await generateAIBriefing(item, origin, prevHash);
+      if (r && !r.skipped && r.text) {
+        setAIBriefing(`${item}|${origin}`, { text: r.text, factHash: r.hash, generatedAt: new Date().toISOString(), stage });
       }
     } catch (e) {
       console.log(`[AI브리핑] 실패: ${item}/${origin} - ${e.message}`);
@@ -1200,10 +1210,10 @@ app.get('/api/ai-briefing/test', async (req, res) => {
   const item = req.query.item || '바나나';
   const origin = req.query.origin || 'import';
   try {
-    const text = await generateAIBriefing(item, origin);
-    if (!text) return res.json({ success: false, error: '데이터 부족으로 생성 실패' });
-    setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage: 'manual' });
-    res.json({ success: true, item, origin, text });
+    const r = await generateAIBriefing(item, origin); // test는 항상 강제 재생성
+    if (!r || !r.text) return res.json({ success: false, error: '데이터 부족으로 생성 실패' });
+    setAIBriefing(`${item}|${origin}`, { text: r.text, factHash: r.hash, generatedAt: new Date().toISOString(), stage: 'manual' });
+    res.json({ success: true, item, origin, text: r.text });
   } catch (e) {
     res.json({ success: false, error: e.message, detail: e.response?.data || null });
   }
@@ -1221,15 +1231,19 @@ app.get('/api/ai-briefing/generate-all', (req, res) => {
     batchProgress = { done: 0, total: combos.length, current: '' };
     const kst = new Date(Date.now() + 9*3600*1000);
     const stage = BATCH_STAGE_NAME[kst.getUTCHours()] || `${kst.getUTCHours()}시대`;
+    let skippedCount = 0;
     for (const [item, origin] of combos) {
       batchProgress.current = `${item}(${origin})`;
       try { await archiveDailyPrices(item, origin); } catch (e) { /* 아카이브 실패해도 계속 */ }
       try {
-        const text = await generateAIBriefing(item, origin);
-        if (text) setAIBriefing(`${item}|${origin}`, { text, generatedAt: new Date().toISOString(), stage });
+        const prevHash = getAIBriefing(`${item}|${origin}`)?.factHash;
+        const r = await generateAIBriefing(item, origin, prevHash);
+        if (r?.skipped) skippedCount++;
+        else if (r?.text) setAIBriefing(`${item}|${origin}`, { text: r.text, factHash: r.hash, generatedAt: new Date().toISOString(), stage });
       } catch (e) { console.log(`[전체생성] 실패: ${item}/${origin} - ${e.message}`); }
       batchProgress.done++;
     }
+    console.log(`[전체생성] 완료 - 데이터 변화 없어 스킵된 조합: ${skippedCount}/${combos.length} (Gemini 비용 절감)`);
     batchRunning = false;
   })();
   res.json({ success: true, message: `${ITEMS_IMPORT_SERVER.length + ITEMS_DOMESTIC_SERVER.length}개 조합 생성 시작함. 몇 분 걸려요. /api/ai-briefing/generate-all/status로 진행상황 확인하세요.` });
