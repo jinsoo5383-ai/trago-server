@@ -193,20 +193,21 @@ main { flex:1; padding:12px 12px 84px; }
 .skel { background:linear-gradient(90deg,#EEECE4 25%,#F6F5F0 50%,#EEECE4 75%); background-size:200% 100%; animation:sk 1.2s infinite; border-radius:14px; height:74px; margin-bottom:8px; }
 @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 /* 태블릿 등 넓은 화면: 카드가 여러 개인 탭은 그리드로 배치해서 여백을 채움 */
+/* 반드시 .on(선택된 탭)일 때만 적용 - 안 그러면 숨겨진 탭까지 강제로 보여버림 */
 @media (min-width: 700px) {
-  #pane-stats, #pane-chart {
+  #pane-stats.on, #pane-chart.on {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
     align-items: start;
   }
-  #pane-stats > *:not(.ccard),
-  #pane-chart > *:not(.ccard) {
+  #pane-stats.on > *:not(.ccard),
+  #pane-chart.on > *:not(.ccard) {
     grid-column: 1 / -1; /* 안내문구·단위선택 등은 계속 전체폭 */
   }
 }
 @media (min-width: 1000px) {
-  #pane-stats, #pane-chart {
+  #pane-stats.on, #pane-chart.on {
     grid-template-columns: 1fr 1fr 1fr;
   }
 }
