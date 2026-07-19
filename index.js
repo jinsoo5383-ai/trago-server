@@ -616,10 +616,18 @@ async function computeDailySeries(fc, item, origin, days) {
     if (d.getUTCDay() === 0) continue; // 일요일 휴장
     dates.push(d.toISOString().slice(0,10));
   }
+  const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  const archived = priceArchive[`${origin}|${item}`] || {};
   const series = [];
   const CHUNK = 10;
-  for (let i = 0; i < dates.length; i += CHUNK) {
-    const batch = dates.slice(i, i + CHUNK);
+  // 아카이브에 이미 있는 과거 날짜는 정부 API를 다시 안 부르고 바로 씀 (호출량 절감 + 정부 API가 지운 옛날 데이터도 복원됨)
+  const needFetch = dates.filter(date => {
+    if (date === kstToday) return true; // 오늘은 항상 최신으로 재조회
+    if (archived[date]) { series.push({ date, volumeTons: archived[date].v, avgPricePerKg: archived[date].p, trades: archived[date].t }); return false; }
+    return true;
+  });
+  for (let i = 0; i < needFetch.length; i += CHUNK) {
+    const batch = needFetch.slice(i, i + CHUNK);
     const results = await Promise.all(batch.map(async date => {
       try {
         let arr = await fetchTradesDay(date, fc.l, fc.m);
