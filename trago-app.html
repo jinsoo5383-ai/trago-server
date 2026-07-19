@@ -205,10 +205,9 @@ main { flex:1; padding:12px 12px 84px; }
   #pane-chart.on > *:not(.ccard) {
     grid-column: 1 / -1; /* 안내문구·단위선택 등은 계속 전체폭 */
   }
-}
-@media (min-width: 1000px) {
-  #pane-stats.on, #pane-chart.on {
-    grid-template-columns: 1fr 1fr 1fr;
+  #pane-stats.on > .ccard.wide-card,
+  #pane-chart.on > .ccard.wide-card {
+    grid-column: 1 / -1; /* 세로로 긴 카드(예측·수입물량 등)는 짧은 카드랑 안 섞이게 전체폭 */
   }
 }
 </style>
@@ -377,7 +376,7 @@ main { flex:1; padding:12px 12px 84px; }
         <div class="sub" id="volSub">전국 경락 물량 · 일별 톤 · 최근 3주</div>
         <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartVol"></canvas></div>
       </div>
-      <div class="ccard">
+      <div class="ccard wide-card">
         <div style="display:flex;align-items:center;gap:6px;">
           <h3 id="fcTitle">가격 예측</h3>
           <span style="font-size:10px;background:#F5E9D3;color:#A2722C;padding:2px 7px;border-radius:8px;font-weight:700;">BETA</span>
@@ -386,7 +385,7 @@ main { flex:1; padding:12px 12px 84px; }
         <div id="fcBody" style="margin-top:12px;"></div>
         <div id="fcCaveat" style="font-size:11px;color:var(--faint);line-height:1.55;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);"></div>
       </div>
-      <div class="ccard" id="importVolCard" style="display:none;">
+      <div class="ccard wide-card" id="importVolCard" style="display:none;">
         <h3 id="impVolTitle">월별 수입물량</h3>
         <div class="sub">관세청 통관 실적 · 톤 · 최근 6개월</div>
         <div class="chartwrap" style="height:200px;margin-top:12px;"><canvas id="chartImpVol"></canvas></div>
