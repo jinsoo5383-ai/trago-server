@@ -444,11 +444,11 @@ main { flex:1; padding:12px 12px 84px; }
 <script>
 const SERVER = '';
 const ITEMS_IMPORT = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'];
-const ITEMS_DOMESTIC = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리'];
+const ITEMS_DOMESTIC = ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리','단감','딸기'];
 function currentItems() { return state.origin === 'domestic' ? ITEMS_DOMESTIC : ITEMS_IMPORT; }
 // 품목별로 시장에서 흔히 찾는 상자 단위(kg) — 실거래 데이터 + 실무 확인 기준. 포도는 수입/국산에 따라 크게 달라서 origin별로 분리.
 const BOX_KG_IMPORT = { '바나나':13, '망고':5, '파인애플':12, '오렌지':18, '레몬':17, '포도':8, '체리':5, '키위':6, '블루베리':1.5, '아보카도':5.5, '멜론':8 };
-const BOX_KG_DOMESTIC = { '수박':10, '참외':10, '복숭아':4, '자두':5, '사과':10, '배':2.5, '감귤':3, '포도':2, '키위':6, '블루베리':1.5, '멜론':8 };
+const BOX_KG_DOMESTIC = { '수박':10, '참외':10, '복숭아':4, '자두':5, '사과':10, '배':2.5, '감귤':3, '포도':2, '키위':6, '블루베리':1.5, '멜론':8, '단감':10, '딸기':2 };
 function getBoxKg(item) {
   const map = state.origin === 'domestic' ? BOX_KG_DOMESTIC : BOX_KG_IMPORT;
   return map[item] || BOX_KG_IMPORT[item] || BOX_KG_DOMESTIC[item] || 10;
