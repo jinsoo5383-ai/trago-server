@@ -308,6 +308,9 @@ app.get('/broker/hwashin', (req, res) => {
 });
 
 const PORT = 3000;
+app.get('/app-ads.txt', (req, res) => res.type('text/plain').send('google.com, pub-8685213567798384, DIRECT, f08c47fec0942fa0'));
+app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: Google-adstxt\nAllow: /app-ads.txt\nUser-agent: Mediapartners-Google\nAllow: /app-ads.txt\nUser-agent: Googlebot\nAllow: /app-ads.txt'));
+
 app.listen(PORT, () => {
   console.log(`✅ Trago 서버 v5.0: http://localhost:${PORT}`);
 });
