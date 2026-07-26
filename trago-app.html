@@ -861,10 +861,22 @@ async function shareAIBriefing() {
   }, 'image/png');
 }
 
+let _pendingUnlockBtn = null;
+
 function unlockAIBriefing(btn) {
-  // TODO: 실제 광고 SDK 연동 시 이 자리에서 리워드 광고(15초)를 재생하고,
-  // 광고 시청 완료 콜백 안에서 아래 잠금해제 코드를 실행하도록 교체하세요.
-  // 지금은 광고 네트워크 연동 전이라 클릭 시 바로 해제되는 자리표시자예요.
+  // 네이티브 앱(iOS/Android)에서는 RN WebView 브릿지로 보상형 광고를 띄운다.
+  // 광고 시청 완료 시 네이티브가 'AD_REWARD_EARNED' 메시지를 다시 보내주면
+  // 그때 실제로 잠금을 해제한다 (아래 message 리스너 참고).
+  if (window.ReactNativeWebView) {
+    _pendingUnlockBtn = btn;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SHOW_REWARDED_AD' }));
+    return;
+  }
+  // 네이티브 브릿지가 없는 일반 웹(브라우저)에서는 광고 없이 바로 해제 (개발/테스트용)
+  doUnlock(btn);
+}
+
+function doUnlock(btn) {
   const gate = btn.closest('.adgate');
   if (!gate) return;
   const lockedEl = gate.querySelector('.locked');
@@ -872,6 +884,21 @@ function unlockAIBriefing(btn) {
   const lockBtn = gate.querySelector('.lockbtn');
   if (lockBtn) lockBtn.remove();
 }
+
+function handleNativeMessage(event) {
+  let data;
+  try {
+    data = JSON.parse(event.data);
+  } catch (e) {
+    return;
+  }
+  if (data.type === 'AD_REWARD_EARNED' && _pendingUnlockBtn) {
+    doUnlock(_pendingUnlockBtn);
+    _pendingUnlockBtn = null;
+  }
+}
+document.addEventListener('message', handleNativeMessage); // Android
+window.addEventListener('message', handleNativeMessage); // iOS
 
 async function loadStats() {
   const cmpEl = document.getElementById('cmpCards');
