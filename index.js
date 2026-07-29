@@ -126,7 +126,7 @@ app.get('/api/price', async (req, res) => {
     });
     res.json({ success: true, data: response.data });
   } catch (e) {
-    res.json({ success: false, error: e.message });
+    res.json({ success: false, error: e.message, kamisBody: e.response?.data, status: e.response?.status });
   }
 });
 
