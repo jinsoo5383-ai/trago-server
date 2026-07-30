@@ -1273,6 +1273,8 @@ function isLikelyTragoApp(ua) {
 }
 
 app.get('/app', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
   const ua = req.headers['user-agent'] || '';
   if (!isLikelyTragoApp(ua)) {
     return res.send(`<!DOCTYPE html>
