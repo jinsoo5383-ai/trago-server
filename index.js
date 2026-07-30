@@ -1263,26 +1263,9 @@ app.get('/api/ai-briefing/generate-all/status', (req, res) => {
   res.json({ running: batchRunning, ...batchProgress });
 });
 
-// ── Trago 모바일 앱 (앱 전용 헤더 검증) ──
-const TRAGO_APP_SECRET = process.env.TRAGO_APP_SECRET || 'trg_k9mQ2vXpL7wR4jN8';
+// ── Trago 모바일 앱 (헤더 검증 임시 비활성화 - UA 패턴 확인 중) ──
 app.get('/app', (req, res) => {
-  if (req.headers['x-trago-app'] !== TRAGO_APP_SECRET) {
-    return res.send(`<!DOCTYPE html>
-<html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Trago - 앱에서 만나보세요</title>
-<style>
-  body { font-family: -apple-system, sans-serif; background: #f7f5f0; margin:0; padding:60px 24px; text-align:center; color:#221D16; }
-  h1 { font-size: 22px; margin-bottom: 12px; }
-  p { font-size: 15px; color: #5e574c; line-height: 1.6; }
-  a { display:inline-block; margin-top: 28px; background:#C8512A; color:#fff; padding:14px 28px; border-radius:24px; text-decoration:none; font-weight:700; }
-</style></head>
-<body>
-  <h1>📱 Trago는 앱에서 이용해주세요</h1>
-  <p>실시간 시세와 차트는<br>Trago 앱에서 확인하실 수 있어요.</p>
-  <a href="https://apps.apple.com/app/id6792447312">App Store에서 받기</a>
-</body></html>`);
-  }
+  console.log('[UA 확인]', req.headers['user-agent']);
   res.sendFile(__dirname + '/trago-app.html');
 });
 
