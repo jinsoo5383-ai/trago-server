@@ -1267,8 +1267,10 @@ app.get('/api/ai-briefing/generate-all/status', (req, res) => {
 function isLikelyTragoApp(ua) {
   if (!ua) return false;
   if (ua.includes('CFNetwork')) return true; // 앱의 서버 깨우기 핑
-  if (/Version\/[\d.]+\s+Mobile.*Safari\//.test(ua)) return false; // 진짜 사파리/크롬 등 브라우저
-  if (/Mobile\/15E148/.test(ua)) return true; // 앱 내 WebView (Safari 토큰 없음)
+  // 진짜 브라우저(사파리, 크롬, 파이어폭스 등)는 항상 끝에 "Safari/xxx" 토큰이 붙음.
+  // RN WebView는 이 토큰이 없으므로, 있으면 무조건 브라우저로 간주해 차단.
+  if (/Safari\/[\d.]+/.test(ua)) return false;
+  if (/Mobile\/15E148/.test(ua)) return true; // 앱 내 WebView
   return false;
 }
 
