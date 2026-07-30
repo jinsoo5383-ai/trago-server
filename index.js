@@ -612,6 +612,54 @@ async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
 }
 
 // 일별 시리즈(물량·가중평균가) 계산 - stats와 forecast에서 공용
+// ── 경락 원본 행 아카이브 (자산화 핵심: 집계 전 원본을 날짜별로 영구 보관) ──
+const RAW_DIR = (fs.existsSync(VOLUME_DIR) ? VOLUME_DIR : __dirname) + '/raw';
+try { if (!fs.existsSync(RAW_DIR)) fs.mkdirSync(RAW_DIR, { recursive: true }); } catch (e) {}
+
+function saveRawTrades(date, l, m, arr) {
+  try {
+    if (!Array.isArray(arr) || arr.length === 0) return;
+    const path = `${RAW_DIR}/${date}_${l}_${m}.json`;
+    if (fs.existsSync(path)) return; // 이미 저장됨 - 중복 쓰기 방지
+    fs.writeFileSync(path, JSON.stringify(arr));
+  } catch (e) { /* 원본 저장 실패해도 서비스에 영향 없게 */ }
+}
+
+// 원본 아카이브 현황 조회
+app.get('/api/raw/status', (req, res) => {
+  try {
+    const files = fs.readdirSync(RAW_DIR).filter(f => f.endsWith('.json'));
+    const byDate = {};
+    let totalBytes = 0;
+    files.forEach(f => {
+      const date = f.slice(0, 10);
+      byDate[date] = (byDate[date] || 0) + 1;
+      try { totalBytes += fs.statSync(`${RAW_DIR}/${f}`).size; } catch (e) {}
+    });
+    const dates = Object.keys(byDate).sort();
+    res.json({
+      success: true, fileCount: files.length,
+      firstDate: dates[0] || null, lastDate: dates[dates.length - 1] || null,
+      dateCount: dates.length, totalMB: Math.round(totalBytes / 1048576 * 100) / 100,
+      byDate
+    });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// 특정 날짜 원본 행 조회
+app.get('/api/raw/day', (req, res) => {
+  try {
+    const date = req.query.date;
+    if (!date) return res.json({ success: false, error: 'date 파라미터 필요 (YYYY-MM-DD)' });
+    const files = fs.readdirSync(RAW_DIR).filter(f => f.startsWith(date) && f.endsWith('.json'));
+    let rows = [];
+    files.forEach(f => {
+      try { rows = rows.concat(JSON.parse(fs.readFileSync(`${RAW_DIR}/${f}`, 'utf8'))); } catch (e) {}
+    });
+    res.json({ success: true, date, fileCount: files.length, rowCount: rows.length, rows });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
 async function computeDailySeries(fc, item, origin, days) {
   const dates = [];
   for (let i = days; i >= 0; i--) {
@@ -634,6 +682,7 @@ async function computeDailySeries(fc, item, origin, days) {
     const results = await Promise.all(batch.map(async date => {
       try {
         let arr = await fetchTradesDay(date, fc.l, fc.m);
+        saveRawTrades(date, fc.l, fc.m, arr); // 필터 전 원본 그대로 보관
         arr = applyOriginFilter(arr, item, origin);
         let totW = 0, totVal = 0, trades = 0;
         arr.forEach(d => {
