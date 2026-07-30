@@ -1280,7 +1280,7 @@ app.get('/app', (req, res) => {
 <body>
   <h1>📱 Trago는 앱에서 이용해주세요</h1>
   <p>실시간 시세와 차트는<br>Trago 앱에서 확인하실 수 있어요.</p>
-  <a href="https://apps.apple.com/app/id여기에실제앱ID">App Store에서 받기</a>
+  <a href="https://apps.apple.com/app/id6792447312">App Store에서 받기</a>
 </body></html>`);
   }
   res.sendFile(__dirname + '/trago-app.html');
