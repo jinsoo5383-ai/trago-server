@@ -613,12 +613,17 @@ async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
 
 // 일별 시리즈(물량·가중평균가) 계산 - stats와 forecast에서 공용
 // ── 경락 원본 행 아카이브 (자산화 핵심: 집계 전 원본을 날짜별로 영구 보관) ──
-const RAW_DIR = (fs.existsSync(VOLUME_DIR) ? VOLUME_DIR : __dirname) + '/raw';
-try { if (!fs.existsSync(RAW_DIR)) fs.mkdirSync(RAW_DIR, { recursive: true }); } catch (e) {}
+// VOLUME_DIR이 아래쪽에서 const로 선언되므로, 경로는 호출 시점에 계산 (TDZ 회피)
+function getRawDir() {
+  const dir = (fs.existsSync(VOLUME_DIR) ? VOLUME_DIR : __dirname) + '/raw';
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+  return dir;
+}
 
 function saveRawTrades(date, l, m, arr) {
   try {
     if (!Array.isArray(arr) || arr.length === 0) return;
+    const RAW_DIR = getRawDir();
     const path = `${RAW_DIR}/${date}_${l}_${m}.json`;
     if (fs.existsSync(path)) return; // 이미 저장됨 - 중복 쓰기 방지
     fs.writeFileSync(path, JSON.stringify(arr));
@@ -628,6 +633,7 @@ function saveRawTrades(date, l, m, arr) {
 // 원본 아카이브 현황 조회
 app.get('/api/raw/status', (req, res) => {
   try {
+    const RAW_DIR = getRawDir();
     const files = fs.readdirSync(RAW_DIR).filter(f => f.endsWith('.json'));
     const byDate = {};
     let totalBytes = 0;
@@ -651,6 +657,7 @@ app.get('/api/raw/day', (req, res) => {
   try {
     const date = req.query.date;
     if (!date) return res.json({ success: false, error: 'date 파라미터 필요 (YYYY-MM-DD)' });
+    const RAW_DIR = getRawDir();
     const files = fs.readdirSync(RAW_DIR).filter(f => f.startsWith(date) && f.endsWith('.json'));
     let rows = [];
     files.forEach(f => {
