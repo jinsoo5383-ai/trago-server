@@ -1263,9 +1263,34 @@ app.get('/api/ai-briefing/generate-all/status', (req, res) => {
   res.json({ running: batchRunning, ...batchProgress });
 });
 
-// ── Trago 모바일 앱 (헤더 검증 임시 비활성화 - UA 패턴 확인 중) ──
+// ── Trago 모바일 앱 (User-Agent 기반 차단, 앱 업데이트 불필요) ──
+function isLikelyTragoApp(ua) {
+  if (!ua) return false;
+  if (ua.includes('CFNetwork')) return true; // 앱의 서버 깨우기 핑
+  if (/Version\/[\d.]+\s+Mobile.*Safari\//.test(ua)) return false; // 진짜 사파리/크롬 등 브라우저
+  if (/Mobile\/15E148/.test(ua)) return true; // 앱 내 WebView (Safari 토큰 없음)
+  return false;
+}
+
 app.get('/app', (req, res) => {
-  console.log('[UA 확인]', req.headers['user-agent']);
+  const ua = req.headers['user-agent'] || '';
+  if (!isLikelyTragoApp(ua)) {
+    return res.send(`<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trago - 앱에서 만나보세요</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #f7f5f0; margin:0; padding:60px 24px; text-align:center; color:#221D16; }
+  h1 { font-size: 22px; margin-bottom: 12px; }
+  p { font-size: 15px; color: #5e574c; line-height: 1.6; }
+  a { display:inline-block; margin-top: 28px; background:#C8512A; color:#fff; padding:14px 28px; border-radius:24px; text-decoration:none; font-weight:700; }
+</style></head>
+<body>
+  <h1>📱 Trago는 앱에서 이용해주세요</h1>
+  <p>실시간 시세와 차트는<br>Trago 앱에서 확인하실 수 있어요.</p>
+  <a href="https://apps.apple.com/app/id6792447312">App Store에서 받기</a>
+</body></html>`);
+  }
   res.sendFile(__dirname + '/trago-app.html');
 });
 
