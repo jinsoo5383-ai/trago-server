@@ -1330,10 +1330,14 @@ function isLikelyTragoApp(ua) {
   return false;
 }
 
+const TRAGO_WEB_BYPASS = 'jay2026trago';
 app.get('/app', (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
   const ua = req.headers['user-agent'] || '';
+  if (req.query.key === TRAGO_WEB_BYPASS) {
+    return res.sendFile(__dirname + '/trago-app.html');
+  }
   if (!isLikelyTragoApp(ua)) {
     return res.send(`<!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8">
