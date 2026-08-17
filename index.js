@@ -1160,6 +1160,66 @@ app.get('/api/weekly-moves', (req, res) => {
   res.json({ success: true, origin, moves });
 });
 
+// ── 관리자용: 과거 원본 강제 재수집 ──
+// 정부 API는 약 5주치만 보관하므로, 불완전하게 저장된 과거 원본을 지금 보정해둔다.
+// tradesDayCache를 우회해 실제로 다시 fetch하고, 더 많은 데이터면 파일을 덮어쓴다.
+let rawBackfillRunning = false, rawBackfillProgress = { done: 0, total: 0, current: '', saved: 0 };
+
+app.get('/api/admin/raw/backfill', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  if (rawBackfillRunning) return res.json({ success: false, error: '이미 실행 중', progress: rawBackfillProgress });
+
+  const days = Math.min(parseInt(req.query.days) || 14, 40);
+  rawBackfillRunning = true;
+
+  (async () => {
+    // 대상 날짜 목록 (오늘부터 과거 days일, 일요일 제외)
+    const dates = [];
+    for (let i = 0; i <= days; i++) {
+      const d = new Date(Date.now() + 9*3600*1000);
+      d.setUTCDate(d.getUTCDate() - i);
+      if (d.getUTCDay() === 0) continue;
+      dates.push(d.toISOString().slice(0,10));
+    }
+    // 품목 코드 조합 (중복 제거)
+    const codes = [];
+    const seen = new Set();
+    for (const fc of Object.values(FRUIT_CODES)) {
+      const k = `${fc.l}|${fc.m}`;
+      if (seen.has(k)) continue;
+      seen.add(k); codes.push(fc);
+    }
+
+    rawBackfillProgress = { done: 0, total: dates.length * codes.length, current: '', saved: 0 };
+
+    for (const date of dates) {
+      for (const fc of codes) {
+        rawBackfillProgress.current = `${date} ${fc.l}/${fc.m}`;
+        try {
+          // 캐시를 지워 실제 API 재호출을 강제
+          tradesDayCache.delete(`${date}|${fc.l}|${fc.m}`);
+          const arr = await fetchTradesDay(date, fc.l, fc.m);
+          if (arr && arr.length) rawBackfillProgress.saved++;
+        } catch (e) { /* 개별 실패는 건너뜀 */ }
+        rawBackfillProgress.done++;
+      }
+    }
+    console.log(`[원본백필] 완료 - ${rawBackfillProgress.saved}/${rawBackfillProgress.total} 수집`);
+    rawBackfillRunning = false;
+  })();
+
+  res.json({ success: true, message: `최근 ${days}일 원본 재수집 시작. /api/admin/raw/backfill/status?key=... 로 확인하세요.` });
+});
+
+app.get('/api/admin/raw/backfill/status', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  res.json({ running: rawBackfillRunning, ...rawBackfillProgress });
+});
+
 // ── 관리자 데이터 콘솔 (본인 전용) ──
 app.get('/admin', (req, res) => {
   if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
