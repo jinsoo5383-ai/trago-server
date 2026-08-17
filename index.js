@@ -701,15 +701,30 @@ async function computeDailySeries(fc, item, origin, days) {
         let arr = await fetchTradesDay(date, fc.l, fc.m);
         arr = applyOriginFilter(arr, item, origin);
         let totW = 0, totVal = 0, trades = 0;
-        // 이상값 필터는 쓰지 않음. 확인 결과 튀는 값들은 오류가 아니라 실거래였고,
-        // 진짜 원인은 비수기 품목의 표본 부족(하루 거래 몇 건뿐)이었음.
-        // 대신 거래건수를 그대로 저장해 신뢰도 판단에 쓴다.
+        // 극단적 오류값만 제외한다. (예: 2026-08-14 바나나에 낙찰가 93,939,393원짜리
+        // 오입력 1건이 섞여 그날 평균가가 1,923원 → 5,509원으로 왜곡된 사례)
+        // 기준을 중앙값 20배로 크게 잡아, 소포장 프리미엄이나 하우스/노지 품종 차이 같은
+        // 정상적인 가격 편차(최대 10배 수준)는 그대로 살린다.
+        const unitPrices = [];
+        arr.forEach(d => {
+          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1;
+          if (price && uq) unitPrices.push(price / uq);
+        });
+        let medUnit = 0;
+        if (unitPrices.length) {
+          const s = [...unitPrices].sort((a, b) => a - b);
+          medUnit = s[Math.floor(s.length / 2)];
+        }
+        let dropped = 0;
         arr.forEach(d => {
           const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
           if (!price || !uq) return;
+          const perKg = price / uq;
+          if (medUnit > 0 && (perKg > medUnit * 20 || perKg < medUnit / 20)) { dropped++; return; }
           const w = uq * q;
-          totW += w; totVal += (price / uq) * w; trades++;
+          totW += w; totVal += perKg * w; trades++;
         });
+        if (dropped > 0) console.log(`[오류값제외] ${date} ${item}/${origin}: ${dropped}건 (중앙값 ${Math.round(medUnit)}원/kg의 20배 초과)`);
         if (totW <= 0) return null;
         return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
       } catch (e) { return null; }
