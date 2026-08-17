@@ -628,7 +628,14 @@ function saveRawTrades(date, l, m, arr) {
     if (!Array.isArray(arr) || arr.length === 0) return;
     const RAW_DIR = getRawDir();
     const path = `${RAW_DIR}/${date}_${l}_${m}.json`;
-    if (fs.existsSync(path)) return; // 이미 저장됨 - 중복 쓰기 방지
+    // 이미 파일이 있어도, 새로 받은 데이터가 더 많으면 덮어쓴다.
+    // (과거에 maxPages 제한이나 캐시 때문에 일부만 저장된 파일들을 보정하기 위함)
+    if (fs.existsSync(path)) {
+      try {
+        const prev = JSON.parse(fs.readFileSync(path, 'utf8'));
+        if (Array.isArray(prev) && prev.length >= arr.length) return; // 기존 게 더 완전하면 유지
+      } catch (e) { /* 깨진 파일이면 덮어쓰기로 진행 */ }
+    }
     fs.writeFileSync(path, JSON.stringify(arr));
   } catch (e) { /* 원본 저장 실패해도 서비스에 영향 없게 */ }
 }
