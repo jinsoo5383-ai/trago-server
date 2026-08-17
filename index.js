@@ -1160,6 +1160,14 @@ app.get('/api/weekly-moves', (req, res) => {
   res.json({ success: true, origin, moves });
 });
 
+// ── 관리자 데이터 콘솔 (본인 전용) ──
+app.get('/admin', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).send('<h3 style="font-family:sans-serif;padding:40px">접근 권한이 없습니다</h3>');
+  }
+  res.sendFile(__dirname + '/trago-admin.html');
+});
+
 // ── 관리자용: 아카이브 특정 날짜 삭제 (오염 데이터 정리) ──
 const ADMIN_KEY = process.env.ADMIN_KEY || 'jay2026trago';
 // 하루 거래건수가 이 값 미만이면 표본 부족으로 보고 평균가를 신뢰하지 않음

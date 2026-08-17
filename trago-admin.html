@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trago 데이터 콘솔</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1113;
+    --panel: #16191d;
+    --panel2: #1c2025;
+    --line: #2a2f36;
+    --text: #e6e8ea;
+    --muted: #8b939c;
+    --accent: #4ade80;
+    --warn: #fbbf24;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: -0.3px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .wrap { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 20px;
+  }
+  select, button {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; font-family: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: #1e3a2f; border-color: #2f6b52; color: var(--accent); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+  .card .value { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+  .card .value small { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; margin-bottom: 20px;
+  }
+  .panel h2 {
+    margin: 0 0 14px; font-size: 13px; color: var(--muted);
+    font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  #chartBox { height: 320px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:hover { background: var(--panel2); }
+  tr.lowsample td { color: var(--warn); }
+  tr.lowsample td:first-child::after { content: " ⚠"; font-size: 11px; }
+  .tblScroll { max-height: 420px; overflow-y: auto; }
+  .legend { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .loading { color: var(--muted); padding: 40px; text-align: center; }
+  .health-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .health-row:last-child { border-bottom: none; }
+  .bad { color: var(--danger); }
+  .ok { color: var(--accent); }
+  .vrty { display: flex; flex-wrap: wrap; gap: 6px; }
+  .vrty span { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trago 데이터 콘솔</h1>
+  <span class="sub" id="hdrSub">경락 아카이브 · 원본 수집 현황</span>
+</header>
+
+<div class="wrap">
+  <div class="controls">
+    <select id="selItem"></select>
+    <select id="selOrigin">
+      <option value="import">수입</option>
+      <option value="domestic">국산</option>
+    </select>
+    <button id="btnLoad" class="primary">조회</button>
+    <button id="btnCsv">CSV 다운로드</button>
+    <button id="btnHealth">전체 현황</button>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="panel">
+    <h2>가격 추이 (kg당 · 거래건수)</h2>
+    <div id="chartBox"><canvas id="chart"></canvas></div>
+    <div class="legend">회색 막대는 거래건수. 거래건수가 <b id="minT">20</b>건 미만인 날은 표본이 적어 평균가 신뢰도가 낮습니다.</div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>일별 데이터</h2>
+      <div class="tblScroll">
+        <table id="tbl">
+          <thead><tr><th>날짜</th><th>kg당</th><th>박스당</th><th>물량(톤)</th><th>거래</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>오늘 거래 품종 분포</h2>
+      <div class="vrty" id="vrtyBox"><span class="loading">조회를 눌러주세요</span></div>
+      <h2 style="margin-top:20px">원본 수집 현황</h2>
+      <div id="rawBox"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="healthPanel" style="display:none">
+    <h2>전체 품목 현황</h2>
+    <div id="healthBox"></div>
+  </div>
+</div>
+
+<script>
+const KEY = new URLSearchParams(location.search).get('key') || '';
+const MIN_TRADES = 20;
+document.getElementById('minT').textContent = MIN_TRADES;
+
+const ITEMS = {
+  import: ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론'],
+  domestic: ['수박','참외','멜론','복숭아','자두','포도','사과','배','감귤','키위','블루베리','딸기','단감']
+};
+
+const selItem = document.getElementById('selItem');
+const selOrigin = document.getElementById('selOrigin');
+
+function fillItems() {
+  const list = ITEMS[selOrigin.value];
+  selItem.innerHTML = list.map(i => `<option>${i}</option>`).join('');
+}
+selOrigin.addEventListener('change', fillItems);
+fillItems();
+
+let chart = null;
+
+function fmt(n) { return (n || 0).toLocaleString('ko-KR'); }
+
+async function loadData() {
+  const item = selItem.value, origin = selOrigin.value;
+  document.getElementById('cards').innerHTML = '<div class="loading">불러오는 중…</div>';
+
+  const r = await fetch(`/api/archive?item=${encodeURIComponent(item)}&origin=${origin}`);
+  const d = await r.json();
+  if (!d.success || !d.rows.length) {
+    document.getElementById('cards').innerHTML = '<div class="loading">데이터 없음</div>';
+    return;
+  }
+
+  const rows = d.rows;
+  const prices = rows.map(r => r.p).filter(p => p > 0).sort((a,b) => a-b);
+  const median = prices[Math.floor(prices.length/2)] || 0;
+  const latest = rows[rows.length-1];
+  const prev = rows[rows.length-2];
+  const chg = prev ? ((latest.p - prev.p) / prev.p * 100) : 0;
+  const lowCnt = rows.filter(r => (r.t||0) < MIN_TRADES).length;
+  const totalVol = rows.reduce((a,r) => a + (r.v||0), 0);
+
+  document.getElementById('cards').innerHTML = `
+    <div class="card"><div class="label">최근 시세 (${latest.date})</div>
+      <div class="value">${fmt(latest.p)}<small>원/kg</small></div></div>
+    <div class="card"><div class="label">전일 대비</div>
+      <div class="value" style="color:${chg>0?'#f87171':chg<0?'#4ade80':'#e6e8ea'}">${chg>0?'+':''}${chg.toFixed(1)}<small>%</small></div></div>
+    <div class="card"><div class="label">기간 중앙값</div>
+      <div class="value">${fmt(median)}<small>원/kg</small></div></div>
+    <div class="card"><div class="label">누적 데이터</div>
+      <div class="value">${rows.length}<small>일</small></div></div>
+    <div class="card"><div class="label">누적 물량</div>
+      <div class="value">${fmt(Math.round(totalVol))}<small>톤</small></div></div>
+    <div class="card"><div class="label">표본 부족일</div>
+      <div class="value" style="color:${lowCnt?'#fbbf24':'#4ade80'}">${lowCnt}<small>/${rows.length}일</small></div></div>
+  `;
+
+  // 표
+  const tb = document.querySelector('#tbl tbody');
+  tb.innerHTML = [...rows].reverse().map(r => {
+    const low = (r.t||0) < MIN_TRADES;
+    return `<tr class="${low?'lowsample':''}">
+      <td>${r.date}</td><td>${fmt(r.p)}</td><td>${fmt(Math.round(r.p*10))}</td>
+      <td>${(r.v||0).toFixed(1)}</td><td>${fmt(r.t)}</td></tr>`;
+  }).join('');
+
+  // 차트
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    data: {
+      labels: rows.map(r => r.date.slice(5)),
+      datasets: [
+        { type:'bar', label:'거래건수', data: rows.map(r => r.t),
+          backgroundColor: rows.map(r => (r.t||0) < MIN_TRADES ? 'rgba(251,191,36,.5)' : 'rgba(120,130,140,.28)'),
+          yAxisID:'y1', order: 2 },
+        { type:'line', label:'kg당 단가', data: rows.map(r => r.p),
+          borderColor:'#4ade80', backgroundColor:'rgba(74,222,128,.08)',
+          borderWidth: 2, pointRadius: 2, tension: .25, fill: true, yAxisID:'y', order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: { legend: { labels: { color:'#8b939c', boxWidth: 12 } } },
+      scales: {
+        x: { ticks:{ color:'#8b939c', maxTicksLimit: 14 }, grid:{ color:'#22262c' } },
+        y: { position:'left', ticks:{ color:'#8b939c', callback:v=>fmt(v) }, grid:{ color:'#22262c' } },
+        y1:{ position:'right', ticks:{ color:'#6b7280' }, grid:{ display:false } }
+      }
+    }
+  });
+
+  loadVariety(item, origin);
+  loadRawStatus();
+}
+
+async function loadVariety(item, origin) {
+  const box = document.getElementById('vrtyBox');
+  box.innerHTML = '<span class="loading">…</span>';
+  try {
+    const today = new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);
+    const r = await fetch(`/api/nationwide?item=${encodeURIComponent(item)}&origin=${origin}&date=${today}`);
+    const d = await r.json();
+    const opts = d.vrtyOptions || [];
+    box.innerHTML = opts.length
+      ? opts.slice(0,20).map(v => `<span>${v}</span>`).join('')
+      : '<span class="loading">오늘 거래 없음</span>';
+  } catch(e) { box.innerHTML = '<span class="loading">조회 실패</span>'; }
+}
+
+async function loadRawStatus() {
+  const box = document.getElementById('rawBox');
+  try {
+    const r = await fetch('/api/raw/status');
+    const d = await r.json();
+    if (!d.success) { box.innerHTML = '<div class="loading">원본 수집 미가동</div>'; return; }
+    const dates = Object.entries(d.byDate).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7);
+    box.innerHTML = `
+      <div class="health-row"><span>보관 기간</span><span>${d.firstDate} ~ ${d.lastDate}</span></div>
+      <div class="health-row"><span>총 용량</span><span>${d.totalMB} MB / ${d.fileCount}개 파일</span></div>
+      ` + dates.map(([dt,n]) => `<div class="health-row"><span>${dt}</span><span>${n}개 품목</span></div>`).join('');
+  } catch(e) { box.innerHTML = '<div class="loading">조회 실패</div>'; }
+}
+
+async function loadHealth() {
+  const panel = document.getElementById('healthPanel');
+  const box = document.getElementById('healthBox');
+  panel.style.display = 'block';
+  box.innerHTML = '<div class="loading">불러오는 중…</div>';
+  const r = await fetch(`/api/admin/archive/health?key=${encodeURIComponent(KEY)}`);
+  const d = await r.json();
+  if (!d.success) { box.innerHTML = '<div class="loading">권한 없음 (URL에 ?key= 필요)</div>'; return; }
+  box.innerHTML = d.report.map(x => {
+    const ratio = x.count ? (x.lowSampleDays / x.count) : 0;
+    const cls = ratio > 0.3 ? 'bad' : ratio > 0 ? '' : 'ok';
+    return `<div class="health-row">
+      <span>${x.item} <span style="color:#6b7280">${x.origin==='import'?'수입':'국산'}</span></span>
+      <span>중앙 ${fmt(x.medianPrice)}원/kg · 거래 ${fmt(x.medianTrades)}건 ·
+        <span class="${cls}">표본부족 ${x.lowSampleDays}/${x.count}일</span></span>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnLoad').addEventListener('click', loadData);
+document.getElementById('btnHealth').addEventListener('click', loadHealth);
+document.getElementById('btnCsv').addEventListener('click', () => {
+  location.href = `/api/archive/csv?item=${encodeURIComponent(selItem.value)}&origin=${selOrigin.value}`;
+});
+
+loadData();
+</script>
+</body>
+</html>
