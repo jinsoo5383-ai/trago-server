@@ -692,12 +692,30 @@ async function computeDailySeries(fc, item, origin, days) {
         saveRawTrades(date, fc.l, fc.m, arr); // 필터 전 원본 그대로 보관
         arr = applyOriginFilter(arr, item, origin);
         let totW = 0, totVal = 0, trades = 0;
+        // 1차: kg당 단가를 모두 뽑아 중앙값 계산 (이상값 판별 기준으로 씀)
+        const unitPrices = [];
+        arr.forEach(d => {
+          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1;
+          if (!price || !uq) return;
+          unitPrices.push(price / uq);
+        });
+        let median = 0;
+        if (unitPrices.length) {
+          const sorted = [...unitPrices].sort((a, b) => a - b);
+          median = sorted[Math.floor(sorted.length / 2)];
+        }
+        // 2차: 중앙값의 3배를 넘거나 1/3 미만인 거래는 단위(unit_qty) 오입력으로 보고 제외
+        //      (예: 13kg 박스인데 unit_qty가 1로 들어와 단가가 13배로 부풀려지는 케이스)
+        let excluded = 0;
         arr.forEach(d => {
           const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
           if (!price || !uq) return;
+          const perKg = price / uq;
+          if (median > 0 && (perKg > median * 3 || perKg < median / 3)) { excluded++; return; }
           const w = uq * q;
-          totW += w; totVal += (price / uq) * w; trades++;
+          totW += w; totVal += perKg * w; trades++;
         });
+        if (excluded > 0) console.log(`[이상값제외] ${date} ${item}/${origin}: ${excluded}건 제외 (중앙값 ${Math.round(median)}원/kg 기준)`);
         if (totW <= 0) return null;
         return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
       } catch (e) { return null; }
@@ -1146,6 +1164,74 @@ app.get('/api/weekly-moves', (req, res) => {
   }
   moves.sort((a, b) => a.chgPct - b.chgPct); // 싸진 순
   res.json({ success: true, origin, moves });
+});
+
+// ── 관리자용: 아카이브 특정 날짜 삭제 (오염 데이터 정리) ──
+const ADMIN_KEY = process.env.ADMIN_KEY || 'jay2026trago';
+function checkAdmin(req, res) {
+  if (req.query.key !== ADMIN_KEY) { res.status(403).json({ success: false, error: '권한 없음' }); return false; }
+  return true;
+}
+
+app.get('/api/admin/archive/delete', (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const { item, origin, date } = req.query;
+  if (!item || !origin || !date) return res.json({ success: false, error: 'item, origin, date 모두 필요' });
+  const key = `${origin}|${item}`;
+  if (!priceArchive[key] || !priceArchive[key][date]) return res.json({ success: false, error: '해당 데이터 없음' });
+  const removed = priceArchive[key][date];
+  delete priceArchive[key][date];
+  savePriceArchive();
+  res.json({ success: true, message: `${date} ${item}/${origin} 삭제됨`, removed });
+});
+
+// 관리자용: 특정 날짜 재수집 (삭제 후 이 API 호출하면 정부 API에서 다시 받아옴)
+app.get('/api/admin/archive/refetch', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const { item, origin } = req.query;
+  if (!item || !origin) return res.json({ success: false, error: 'item, origin 필요' });
+  try {
+    const added = await archiveDailyPrices(item, origin);
+    res.json({ success: true, message: `${item}/${origin} 재수집 완료`, added });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// 관리자용: 전체 아카이브 현황 + 이상값 탐지
+app.get('/api/admin/archive/health', (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const report = [];
+  for (const [key, days] of Object.entries(priceArchive)) {
+    const [origin, item] = key.split('|');
+    const rows = Object.entries(days).map(([date, d]) => ({ date, ...d })).sort((a,b) => a.date.localeCompare(b.date));
+    if (!rows.length) continue;
+    const prices = rows.map(r => r.p).filter(p => p > 0).sort((a,b) => a-b);
+    const med = prices[Math.floor(prices.length/2)] || 0;
+    const outliers = rows.filter(r => med > 0 && (r.p > med * 2.5 || r.p < med / 2.5));
+    report.push({
+      item, origin, count: rows.length,
+      firstDate: rows[0].date, lastDate: rows[rows.length-1].date,
+      medianPrice: med,
+      outliers: outliers.map(o => ({ date: o.date, p: o.p }))
+    });
+  }
+  report.sort((a,b) => b.outliers.length - a.outliers.length);
+  res.json({ success: true, totalCombos: report.length, report });
+});
+
+// CSV 내보내기 (엑셀에서 바로 열림) - 나중에 유료 기능으로 열 수 있게 조회 전용으로 분리
+app.get('/api/archive/csv', (req, res) => {
+  const item = req.query.item || '바나나';
+  const origin = req.query.origin || 'import';
+  const data = priceArchive[`${origin}|${item}`] || {};
+  const rows = Object.entries(data).map(([date, d]) => ({ date, ...d })).sort((a,b) => a.date.localeCompare(b.date));
+  const boxKg = (SERVER_BOX_KG[origin === 'domestic' ? 'domestic' : 'import'] || {})[item] || 10;
+  let csv = '\uFEFF날짜,kg당단가(원),박스당단가(원),물량(톤),거래건수\n';
+  rows.forEach(r => { csv += `${r.date},${r.p},${Math.round(r.p * boxKg)},${r.v},${r.t}\n`; });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="trago_${item}_${origin}.csv"`);
+  res.send(csv);
 });
 
 // 전체 조합 백필 (최초 1회 또는 수동 보충용) - 백그라운드 실행
