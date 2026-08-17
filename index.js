@@ -582,7 +582,7 @@ app.get('/api/trend', async (req, res) => {
 // 같은 순간의 요청들이 API 호출 1번으로 묶이게 함 (사용자 수 늘어도 호출량이 비례해서 안 늘어남).
 const tradesDayCache = new Map(); // key → array (영구, 과거날짜)
 const todayCacheTTL = new Map();  // key → { data, expiresAt } (오늘자, 3분)
-async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
+async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 10) {
   const key = `${date}|${l}|${m}`; // marketCd는 키에서 제외 - 항상 전체를 캐시
   let all = tradesDayCache.get(key);
   const kstToday = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
@@ -607,6 +607,9 @@ async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 3) {
     }
     if (!isToday) tradesDayCache.set(key, all); // 과거 날짜는 영구 캐시
     else todayCacheTTL.set(key, { data: all, expiresAt: Date.now() + 3*60*1000 }); // 오늘자는 3분 TTL
+    // 정부 API에서 실제로 받아온 직후에만 원본 저장.
+    // (computeDailySeries에 두면 아카이브 캐시가 있는 날짜는 fetch를 건너뛰어 원본이 안 쌓임)
+    saveRawTrades(date, l, m, all);
   }
   return marketCd ? all.filter(d => d.whsl_mrkt_cd === marketCd) : all;
 }
@@ -689,7 +692,6 @@ async function computeDailySeries(fc, item, origin, days) {
     const results = await Promise.all(batch.map(async date => {
       try {
         let arr = await fetchTradesDay(date, fc.l, fc.m);
-        saveRawTrades(date, fc.l, fc.m, arr); // 필터 전 원본 그대로 보관
         arr = applyOriginFilter(arr, item, origin);
         let totW = 0, totVal = 0, trades = 0;
         // 이상값 필터는 쓰지 않음. 확인 결과 튀는 값들은 오류가 아니라 실거래였고,
