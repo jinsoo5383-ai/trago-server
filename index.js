@@ -692,30 +692,15 @@ async function computeDailySeries(fc, item, origin, days) {
         saveRawTrades(date, fc.l, fc.m, arr); // 필터 전 원본 그대로 보관
         arr = applyOriginFilter(arr, item, origin);
         let totW = 0, totVal = 0, trades = 0;
-        // 1차: kg당 단가를 모두 뽑아 중앙값 계산 (이상값 판별 기준으로 씀)
-        const unitPrices = [];
-        arr.forEach(d => {
-          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1;
-          if (!price || !uq) return;
-          unitPrices.push(price / uq);
-        });
-        let median = 0;
-        if (unitPrices.length) {
-          const sorted = [...unitPrices].sort((a, b) => a - b);
-          median = sorted[Math.floor(sorted.length / 2)];
-        }
-        // 2차: 중앙값의 3배를 넘거나 1/3 미만인 거래는 단위(unit_qty) 오입력으로 보고 제외
-        //      (예: 13kg 박스인데 unit_qty가 1로 들어와 단가가 13배로 부풀려지는 케이스)
-        let excluded = 0;
+        // 이상값 필터는 쓰지 않음. 확인 결과 튀는 값들은 오류가 아니라 실거래였고,
+        // 진짜 원인은 비수기 품목의 표본 부족(하루 거래 몇 건뿐)이었음.
+        // 대신 거래건수를 그대로 저장해 신뢰도 판단에 쓴다.
         arr.forEach(d => {
           const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
           if (!price || !uq) return;
-          const perKg = price / uq;
-          if (median > 0 && (perKg > median * 3 || perKg < median / 3)) { excluded++; return; }
           const w = uq * q;
-          totW += w; totVal += perKg * w; trades++;
+          totW += w; totVal += (price / uq) * w; trades++;
         });
-        if (excluded > 0) console.log(`[이상값제외] ${date} ${item}/${origin}: ${excluded}건 제외 (중앙값 ${Math.round(median)}원/kg 기준)`);
         if (totW <= 0) return null;
         return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
       } catch (e) { return null; }
@@ -1168,6 +1153,9 @@ app.get('/api/weekly-moves', (req, res) => {
 
 // ── 관리자용: 아카이브 특정 날짜 삭제 (오염 데이터 정리) ──
 const ADMIN_KEY = process.env.ADMIN_KEY || 'jay2026trago';
+// 하루 거래건수가 이 값 미만이면 표본 부족으로 보고 평균가를 신뢰하지 않음
+// (비수기 품목은 하루 2~3건만 거래되어 평균이 크게 흔들림)
+const MIN_RELIABLE_TRADES = 20;
 function checkAdmin(req, res) {
   if (req.query.key !== ADMIN_KEY) { res.status(403).json({ success: false, error: '권한 없음' }); return false; }
   return true;
@@ -1208,15 +1196,20 @@ app.get('/api/admin/archive/health', (req, res) => {
     if (!rows.length) continue;
     const prices = rows.map(r => r.p).filter(p => p > 0).sort((a,b) => a-b);
     const med = prices[Math.floor(prices.length/2)] || 0;
-    const outliers = rows.filter(r => med > 0 && (r.p > med * 2.5 || r.p < med / 2.5));
+    // 표본 부족일(거래건수 MIN_RELIABLE_TRADES 미만)을 저신뢰 구간으로 표시
+    const lowSample = rows.filter(r => (r.t || 0) < MIN_RELIABLE_TRADES);
+    const tradesArr = rows.map(r => r.t || 0).sort((a,b) => a-b);
+    const medTrades = tradesArr[Math.floor(tradesArr.length/2)] || 0;
     report.push({
       item, origin, count: rows.length,
       firstDate: rows[0].date, lastDate: rows[rows.length-1].date,
       medianPrice: med,
-      outliers: outliers.map(o => ({ date: o.date, p: o.p }))
+      medianTrades: medTrades,
+      lowSampleDays: lowSample.length,
+      lowSample: lowSample.map(o => ({ date: o.date, p: o.p, t: o.t }))
     });
   }
-  report.sort((a,b) => b.outliers.length - a.outliers.length);
+  report.sort((a,b) => b.lowSampleDays - a.lowSampleDays);
   res.json({ success: true, totalCombos: report.length, report });
 });
 
