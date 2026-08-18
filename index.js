@@ -1278,6 +1278,17 @@ app.get('/api/admin/raw/backfill/status', (req, res) => {
   res.json({ running: rawBackfillRunning, ...rawBackfillProgress });
 });
 
+// 관리자용: 지금 즉시 백업 생성
+app.get('/api/admin/backup/now', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  const tag = req.query.tag || 'manual';
+  backupPriceArchive(tag);
+  const days = Object.values(priceArchive).reduce((a,o) => a + Object.keys(o).length, 0);
+  res.json({ success: true, message: '백업 생성됨', totalDays: days, tag });
+});
+
 // 관리자용: 백업 목록 조회
 app.get('/api/admin/backup/list', (req, res) => {
   if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
