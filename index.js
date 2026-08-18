@@ -556,7 +556,7 @@ app.get('/api/trend', async (req, res) => {
         let arr = await fetchTradesDay(dateStr, fc.l, fc.m, marketCd);
         arr = applyOriginFilter(arr, item, origin);
         const rows = arr.map(x => {
-          const price = parseFloat(x.scsbd_prc), unitQty = parseFloat(x.unit_qty) || 1;
+          const price = parseFloat(x.scsbd_prc), unitQty = toKg(x.unit_qty, x.unit_nm);
           const qty = parseFloat(x.qty) || 1;
           return { pricePerKg: price/unitQty, weight: unitQty*qty };
         }).filter(r => r.pricePerKg > 0);
@@ -582,6 +582,19 @@ app.get('/api/trend', async (req, res) => {
 // 같은 순간의 요청들이 API 호출 1번으로 묶이게 함 (사용자 수 늘어도 호출량이 비례해서 안 늘어남).
 const tradesDayCache = new Map(); // key → array (영구, 과거날짜)
 const todayCacheTTL = new Map();  // key → { data, expiresAt } (오늘자, 3분)
+// 단위 중량을 kg 기준으로 환산한다.
+// 정부 데이터의 unit_qty는 unit_nm이 'g'이면 그램 단위로 들어온다.
+// (예: 500g 팩 감귤이 unit_qty=500, unit_nm='g' → 그대로 쓰면 500kg으로 오인되어
+//  단가는 1/1000, 물량은 1000배로 왜곡됨. 2026-08-10 감귤이 6,000원→827원으로 찍힌 원인)
+function toKg(unitQty, unitNm) {
+  const u = parseFloat(unitQty);
+  if (!u || !isFinite(u)) return 0;
+  const nm = String(unitNm || '').trim().toLowerCase();
+  if (nm === 'g' || nm === '그램') return u / 1000;
+  if (nm === 't' || nm === '톤') return u * 1000;
+  return u; // kg 또는 미표기
+}
+
 async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 10) {
   const key = `${date}|${l}|${m}`; // marketCd는 키에서 제외 - 항상 전체를 캐시
   let all = tradesDayCache.get(key);
@@ -707,7 +720,7 @@ async function computeDailySeries(fc, item, origin, days) {
         // 정상적인 가격 편차(최대 10배 수준)는 그대로 살린다.
         const unitPrices = [];
         arr.forEach(d => {
-          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1;
+          const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm);
           if (price && uq) unitPrices.push(price / uq);
         });
         let medUnit = 0;
@@ -717,7 +730,7 @@ async function computeDailySeries(fc, item, origin, days) {
         }
         let dropped = 0;
         arr.forEach(d => {
-          const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
+          const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm), q = parseFloat(d.qty) || 1;
           if (!price || !uq) return;
           const perKg = price / uq;
           if (medUnit > 0 && (perKg > medUnit * 20 || perKg < medUnit / 20)) { dropped++; return; }
@@ -962,7 +975,7 @@ async function computeBriefing(item, origin) {
       arr = applyOriginFilter(arr, item, origin);
       const byMkt = {};
       arr.forEach(d => {
-        const price = parseFloat(d.scsbd_prc), uq = parseFloat(d.unit_qty) || 1, q = parseFloat(d.qty) || 1;
+        const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm), q = parseFloat(d.qty) || 1;
         if (!price || !uq) return;
         const nm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
         (byMkt[nm] = byMkt[nm] || []).push({ p: price/uq, w: uq*q });
@@ -1548,7 +1561,7 @@ app.get('/api/nationwide', async (req, res) => {
     filtered.forEach(d => {
       const marketNm = NATIONWIDE_MARKETS[d.whsl_mrkt_cd] || d.whsl_mrkt_nm;
       const price = parseFloat(d.scsbd_prc);
-      const unitQty = parseFloat(d.unit_qty) || 1;
+      const unitQty = toKg(d.unit_qty, d.unit_nm);
       const qty = parseFloat(d.qty) || 1;
       if (!price || !unitQty) return;
       const pricePerKg = price / unitQty;
