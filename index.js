@@ -1130,6 +1130,36 @@ function savePriceArchive() {
   try { fs.writeFileSync(PRICE_ARCHIVE_PATH, JSON.stringify(priceArchive)); }
   catch (e) { console.log('[가격아카이브] 저장 실패', e.message); }
 }
+// ── 아카이브 자동 백업 ──
+// price-archive.json을 날짜별 스냅샷으로 남긴다.
+// (2026-08-18에 전체 재계산을 하다가 삭제 후 재수집이 안 되어 한 달치를 잃은 사고가 있었음.
+//  정부 API는 5주치만 보관하므로 한 번 지우면 복구가 불가능하다.)
+function getBackupDir() {
+  const dir = (fs.existsSync(VOLUME_DIR) ? VOLUME_DIR : __dirname) + '/backup';
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+  return dir;
+}
+
+const MAX_BACKUPS = 30; // 최근 30개만 보관
+
+function backupPriceArchive(tag) {
+  try {
+    const dir = getBackupDir();
+    const kst = new Date(Date.now() + 9*3600*1000);
+    const stamp = kst.toISOString().slice(0,10) + (tag ? `_${tag}` : '');
+    const path = `${dir}/price-archive_${stamp}.json`;
+    if (fs.existsSync(path) && !tag) return; // 같은 날 자동백업은 1회만
+    fs.writeFileSync(path, JSON.stringify(priceArchive));
+    // 오래된 백업 정리
+    const files = fs.readdirSync(dir).filter(f => f.startsWith('price-archive_')).sort();
+    while (files.length > MAX_BACKUPS) {
+      const old = files.shift();
+      try { fs.unlinkSync(`${dir}/${old}`); } catch (e) {}
+    }
+    console.log(`[아카이브백업] ${path} 저장됨`);
+  } catch (e) { console.log('[아카이브백업] 실패:', e.message); }
+}
+
 async function archiveDailyPrices(item, origin) {
   const fc = FRUIT_CODES[item];
   if (!fc) return 0;
@@ -1248,6 +1278,48 @@ app.get('/api/admin/raw/backfill/status', (req, res) => {
   res.json({ running: rawBackfillRunning, ...rawBackfillProgress });
 });
 
+// 관리자용: 백업 목록 조회
+app.get('/api/admin/backup/list', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  try {
+    const dir = getBackupDir();
+    const files = fs.readdirSync(dir).filter(f => f.startsWith('price-archive_')).sort().reverse();
+    const list = files.map(f => {
+      const st = fs.statSync(`${dir}/${f}`);
+      let days = 0;
+      try {
+        const j = JSON.parse(fs.readFileSync(`${dir}/${f}`, 'utf8'));
+        days = Object.values(j).reduce((a, o) => a + Object.keys(o).length, 0);
+      } catch (e) {}
+      return { file: f, sizeKB: Math.round(st.size/1024), totalDays: days, modified: st.mtime };
+    });
+    res.json({ success: true, count: list.length, list });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// 관리자용: 백업에서 복원 (현재 상태는 복원 전에 따로 백업됨)
+app.get('/api/admin/backup/restore', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  const file = req.query.file;
+  if (!file || !file.startsWith('price-archive_')) return res.json({ success: false, error: 'file 파라미터 필요' });
+  try {
+    const dir = getBackupDir();
+    const path = `${dir}/${file}`;
+    if (!fs.existsSync(path)) return res.json({ success: false, error: '백업 파일 없음' });
+    backupPriceArchive('before-restore');
+    const restored = JSON.parse(fs.readFileSync(path, 'utf8'));
+    const before = Object.values(priceArchive).reduce((a,o) => a + Object.keys(o).length, 0);
+    priceArchive = restored;
+    savePriceArchive();
+    const after = Object.values(priceArchive).reduce((a,o) => a + Object.keys(o).length, 0);
+    res.json({ success: true, message: `${file}에서 복원 완료`, beforeDays: before, afterDays: after });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
 // ── 관리자 데이터 콘솔 (본인 전용) ──
 app.get('/admin', (req, res) => {
   if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
@@ -1272,6 +1344,7 @@ app.get('/api/admin/archive/delete', (req, res) => {
   if (!item || !origin || !date) return res.json({ success: false, error: 'item, origin, date 모두 필요' });
   const key = `${origin}|${item}`;
   if (!priceArchive[key] || !priceArchive[key][date]) return res.json({ success: false, error: '해당 데이터 없음' });
+  backupPriceArchive('before-delete'); // 삭제는 되돌릴 수 없으므로 직전 상태를 남긴다
   const removed = priceArchive[key][date];
   delete priceArchive[key][date];
   savePriceArchive();
@@ -1495,6 +1568,7 @@ app.get('/api/ai-briefing/generate-all', (req, res) => {
       batchProgress.done++;
     }
     console.log(`[전체생성] 완료 - 데이터 변화 없어 스킵된 조합: ${skippedCount}/${combos.length} (Gemini 비용 절감)`);
+    backupPriceArchive(); // 매일 배치 후 아카이브 스냅샷 보관
     batchRunning = false;
   })();
   res.json({ success: true, message: `${ITEMS_IMPORT_SERVER.length + ITEMS_DOMESTIC_SERVER.length}개 조합 생성 시작함. 몇 분 걸려요. /api/ai-briefing/generate-all/status로 진행상황 확인하세요.` });
