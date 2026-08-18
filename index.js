@@ -1278,6 +1278,36 @@ app.get('/api/admin/raw/backfill/status', (req, res) => {
   res.json({ running: rawBackfillRunning, ...rawBackfillProgress });
 });
 
+// 관리자용: 품목 코드 탐색 (새 품목 추가 전 대/중분류 코드와 품목명을 확인)
+app.get('/api/admin/codes/probe', async (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  const l = req.query.l || '08';
+  const date = req.query.date || new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  const from = parseInt(req.query.from) || 1;
+  const to = Math.min(parseInt(req.query.to) || 20, 40);
+  const found = [];
+  for (let i = from; i <= to; i++) {
+    const m = String(i).padStart(2, '0');
+    try {
+      const params = {
+        serviceKey: API_KEY, numOfRows: 20, pageNo: 1, returnType: 'json',
+        'cond[trd_clcln_ymd::EQ]': date, 'cond[gds_lclsf_cd::EQ]': l, 'cond[gds_mclsf_cd::EQ]': m
+      };
+      const r = await axios.get('https://apis.data.go.kr/B552845/katRealTime2/trades2', { params });
+      const items = r.data?.response?.body?.items?.item || [];
+      const arr = (Array.isArray(items) ? items : [items]).filter(Boolean);
+      const total = parseInt(r.data?.response?.body?.totalCount || 0);
+      if (arr.length) {
+        const names = [...new Set(arr.map(x => x.corp_gds_item_nm).filter(Boolean))].slice(0, 5);
+        found.push({ l, m, mclsfNm: arr[0].gds_mclsf_nm, lclsfNm: arr[0].gds_lclsf_nm, totalCount: total, sampleItems: names });
+      }
+    } catch (e) { /* 없는 코드는 건너뜀 */ }
+  }
+  res.json({ success: true, date, lclsf: l, scanned: `${from}~${to}`, foundCount: found.length, found });
+});
+
 // 관리자용: 지금 즉시 백업 생성
 app.get('/api/admin/backup/now', (req, res) => {
   if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
