@@ -3,6 +3,7 @@ const cors = require('cors');
 const axios = require('axios');
 const xml2js = require('xml2js');
 const fs = require('fs');
+const zlib = require('zlib');
 
 const app = express();
 app.use(cors());
@@ -639,20 +640,30 @@ function getRawDir() {
   return dir;
 }
 
+// 원본 파일 읽기 - gzip(.json.gz)과 평문(.json) 모두 지원
+function readRawFile(date, l, m) {
+  const dir = getRawDir();
+  const gz = `${dir}/${date}_${l}_${m}.json.gz`;
+  const plain = `${dir}/${date}_${l}_${m}.json`;
+  try {
+    if (fs.existsSync(gz)) return JSON.parse(zlib.gunzipSync(fs.readFileSync(gz)).toString('utf8'));
+    if (fs.existsSync(plain)) return JSON.parse(fs.readFileSync(plain, 'utf8'));
+  } catch (e) {}
+  return null;
+}
+
 function saveRawTrades(date, l, m, arr) {
   try {
     if (!Array.isArray(arr) || arr.length === 0) return;
     const RAW_DIR = getRawDir();
-    const path = `${RAW_DIR}/${date}_${l}_${m}.json`;
+    const gzPath = `${RAW_DIR}/${date}_${l}_${m}.json.gz`;
+    const oldPath = `${RAW_DIR}/${date}_${l}_${m}.json`; // 압축 도입 전 파일
     // 이미 파일이 있어도, 새로 받은 데이터가 더 많으면 덮어쓴다.
-    // (과거에 maxPages 제한이나 캐시 때문에 일부만 저장된 파일들을 보정하기 위함)
-    if (fs.existsSync(path)) {
-      try {
-        const prev = JSON.parse(fs.readFileSync(path, 'utf8'));
-        if (Array.isArray(prev) && prev.length >= arr.length) return; // 기존 게 더 완전하면 유지
-      } catch (e) { /* 깨진 파일이면 덮어쓰기로 진행 */ }
-    }
-    fs.writeFileSync(path, JSON.stringify(arr));
+    const prev = readRawFile(date, l, m);
+    if (prev && prev.length >= arr.length) return; // 기존 게 더 완전하면 유지
+    // gzip으로 저장 (원본 JSON 대비 약 1/8~1/10 용량)
+    fs.writeFileSync(gzPath, zlib.gzipSync(JSON.stringify(arr)));
+    if (fs.existsSync(oldPath)) { try { fs.unlinkSync(oldPath); } catch (e) {} }
   } catch (e) { /* 원본 저장 실패해도 서비스에 영향 없게 */ }
 }
 
@@ -660,7 +671,7 @@ function saveRawTrades(date, l, m, arr) {
 app.get('/api/raw/status', (req, res) => {
   try {
     const RAW_DIR = getRawDir();
-    const files = fs.readdirSync(RAW_DIR).filter(f => f.endsWith('.json'));
+    const files = fs.readdirSync(RAW_DIR).filter(f => f.endsWith('.json') || f.endsWith('.json.gz'));
     const byDate = {};
     let totalBytes = 0;
     files.forEach(f => {
@@ -684,10 +695,14 @@ app.get('/api/raw/day', (req, res) => {
     const date = req.query.date;
     if (!date) return res.json({ success: false, error: 'date 파라미터 필요 (YYYY-MM-DD)' });
     const RAW_DIR = getRawDir();
-    const files = fs.readdirSync(RAW_DIR).filter(f => f.startsWith(date) && f.endsWith('.json'));
+    const files = fs.readdirSync(RAW_DIR).filter(f => f.startsWith(date) && (f.endsWith('.json') || f.endsWith('.json.gz')));
     let rows = [];
     files.forEach(f => {
-      try { rows = rows.concat(JSON.parse(fs.readFileSync(`${RAW_DIR}/${f}`, 'utf8'))); } catch (e) {}
+      try {
+        const buf = fs.readFileSync(`${RAW_DIR}/${f}`);
+        const txt = f.endsWith('.gz') ? zlib.gunzipSync(buf).toString('utf8') : buf.toString('utf8');
+        rows = rows.concat(JSON.parse(txt));
+      } catch (e) {}
     });
     res.json({ success: true, date, fileCount: files.length, rowCount: rows.length, rows });
   } catch (e) { res.json({ success: false, error: e.message }); }
@@ -1279,6 +1294,37 @@ app.get('/api/admin/raw/backfill/status', (req, res) => {
     return res.status(403).json({ success: false, error: '권한 없음' });
   }
   res.json({ running: rawBackfillRunning, ...rawBackfillProgress });
+});
+
+// 관리자용: 기존 원본 파일 일괄 gzip 압축
+app.get('/api/admin/raw/compress', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  try {
+    const dir = getRawDir();
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    let before = 0, after = 0, done = 0;
+    for (const f of files) {
+      const src = `${dir}/${f}`;
+      const dst = `${src}.gz`;
+      try {
+        const raw = fs.readFileSync(src);
+        before += raw.length;
+        const gz = zlib.gzipSync(raw);
+        fs.writeFileSync(dst, gz);
+        after += gz.length;
+        fs.unlinkSync(src);
+        done++;
+      } catch (e) {}
+    }
+    res.json({
+      success: true, compressed: done,
+      beforeMB: Math.round(before/1048576*100)/100,
+      afterMB: Math.round(after/1048576*100)/100,
+      savedPct: before ? Math.round((1 - after/before) * 100) : 0
+    });
+  } catch (e) { res.json({ success: false, error: e.message }); }
 });
 
 // 관리자용: 품목 코드 탐색 (새 품목 추가 전 대/중분류 코드와 품목명을 확인)
