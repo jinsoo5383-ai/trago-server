@@ -452,7 +452,7 @@ function isDomesticOrigin(plorNm) {
 }
 // 바나나/망고/파인애플/아보카도/레몬/오렌지는 한국 기후상 상업재배 자체가 불가능 → 100% 수입.
 // 이 품목들의 plor_nm에 한국 지명이 찍히는 건 "후숙장/처리장 위치"일 뿐 국산이라는 뜻이 아니므로 원산지 필터를 적용하지 않음.
-const IMPORT_ONLY = ['바나나', '망고', '파인애플', '아보카도', '레몬', '오렌지'];
+const IMPORT_ONLY = ['바나나', '망고', '파인애플', '아보카도', '레몬', '오렌지', '자몽'];
 // origin: 'import'(수입만, 기본) | 'domestic'(국산만) | 'all'(전체)
 function applyOriginFilter(arr, item, origin) {
   if (origin === 'all') return arr;
