@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -1534,20 +1535,269 @@ app.get('/api/archive/backfill', (req, res) => {
   res.json({ success: true, message: '백필 시작함. 수 분 소요. /api/archive?item=바나나로 확인하세요.' });
 });
 
-async function callGemini(prompt, useSearch = true) {
+async function callGemini(prompt, useSearch = true, maxTokens = 3500, thinkBudget = 400, withSources = false) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않았습니다.');
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 3500, thinkingConfig: { thinkingBudget: 400 } }
+    generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: thinkBudget } }
   };
   if (useSearch) body.tools = [{ google_search: {} }];
   const r = await axios.post(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
-    body, { timeout: 45000 }
+    body, { timeout: 120000 }
   );
   const parts = r.data?.candidates?.[0]?.content?.parts || [];
-  return parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+  const text = parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+  if (!withSources) return text;
+  // grounding 출처 추출 (중복 도메인 제거, 최대 12개)
+  const gm = r.data?.candidates?.[0]?.groundingMetadata || {};
+  const chunks = gm.groundingChunks || [];
+  const seen = new Set();
+  const sources = [];
+  for (const c of chunks) {
+    const w = c.web;
+    if (!w?.uri) continue;
+    const key = w.domain || w.title || w.uri;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push({ title: w.title || key, domain: w.domain || '', uri: w.uri });
+    if (sources.length >= 12) break;
+  }
+  const queries = gm.webSearchQueries || [];
+  return { text, sources, queries };
 }
+
+
+// ══════════════════════════════════════════════════════════
+// 주간 산지 시황 리포트 (매주 월 07:00 KST, Gemini + Google Search grounding)
+// 산지 단위로 묶어 호출 → 그룹별 저장. 광고 시청 후 열람하는 프리미엄 콘텐츠.
+// ══════════════════════════════════════════════════════════
+const WEEKLY_REPORT_GROUPS = [
+  { id: 'banana', title: '바나나', kr_items: ['바나나'],
+    kr_sources: '필리핀(민다나오)·베트남·에콰도르·과테말라·코스타리카·페루·캄보디아',
+    global_watch: '파나마병 TR4 전 세계 확산 현황, 에콰도르 최저수출가격(MEP) 정책, 중남미 물류(파나마운하), 유럽·중동·중국 수요 경합이 아시아 물량에 미치는 영향, 필리핀 대일 수출 비중',
+    focus: '민다나오 기상(태풍·가뭄·폭염)과 수확 차질, 베트남 중부 작황, TR4 신규 발생지, CP 등급별 물량 분포, 선적 스케줄 지연 여부' },
+
+  { id: 'pineapple_mango', title: '파인애플·망고', kr_items: ['파인애플', '망고'],
+    kr_sources: '파인애플: 필리핀·코스타리카·베트남·태국 / 망고: 페루·태국·베트남·대만·호주·필리핀',
+    global_watch: '코스타리카 파인애플 대유럽·대미 수출 경합, 페루 망고 시즌 개시 시점과 물량, 태국·베트남 항공운송 여건, 대만 애플망고 검역',
+    focus: '민다나오·코스타리카 생육 상황, NDF 전환 시기, 파인애플 대과/중소과 비율, 망고 산지 전환(태국→페루→대만) 시점, 당도·숙도 편차' },
+
+  { id: 'orange', title: '오렌지', kr_items: ['오렌지'],
+    kr_sources: '미국(캘리포니아)·스페인·이집트·호주·남아공·칠레',
+    global_watch: '브라질 감귤그린병(HLB)과 오렌지주스용 수요가 생과 물량에 주는 압력, 스페인·이집트 지중해 작황, 남반구(남아공·호주·칠레) vs 북반구 시즌 교차',
+    focus: '캘리포니아 발렌시아 종료·네이블 개시 시점, 남아공 수출 시즌 진행률(주차별 누적), 이집트 신물량 개시, 사이즈 분포(대과/소과), 당도·착색 상태' },
+
+  { id: 'lemon_grapefruit', title: '레몬·자몽', kr_items: ['레몬', '자몽'],
+    kr_sources: '레몬: 미국(캘리포니아)·칠레·아르헨티나·스페인·남아공·터키 / 자몽: 미국(플로리다·캘리포니아)·이스라엘·남아공·터키·스페인',
+    global_watch: '이스라엘 정세가 자몽 선적·물류에 미치는 영향, 플로리다 감귤 산업 축소 추세(HLB·허리케인), 터키 수출 규제 및 검역, 아르헨티나 투쿠만 레몬 EU 수출 경합',
+    focus: '남반구(칠레·아르헨티나·남아공) 시즌 진행률과 종료 시점, 이스라엘 자몽 선적 가능 여부, 터키 검역 이슈, 레몬 저장물량 vs 신물량 비중, 자몽 산지별 당도·색택 차이' },
+
+  { id: 'grape', title: '포도(수입)', kr_items: ['포도'],
+    kr_sources: '칠레·페루·호주·미국(캘리포니아)·인도·이집트·남아공·브라질',
+    global_watch: '페루 포도 생산량 급증 추세(글로벌 최대 수출국 부상), 인도·이집트 신흥 수출국 물량 확대, 칠레 시즌 준비 상황, 중국 수요가 남미 물량 배분에 미치는 영향',
+    focus: '남반구 시즌 개시 시점(페루 10월~/칠레 12월~), 품종별 물량(레드글로브·크림슨·스위트글로브·씨없는 품종), 국산 포도(샤인머스켓)와의 경합 시기, 사이즈·송이 무게 스펙' },
+
+  { id: 'kiwi', title: '키위', kr_items: ['키위'],
+    kr_sources: '뉴질랜드(제스프리)·그리스·이탈리아·칠레·국산(제주·전남)',
+    global_watch: '제스프리 글로벌 출하 계획 및 아시아 물량 배분, 그리스·이탈리아 유럽 키위 생산량 추이, 남반구→북반구 시즌 전환, 골드키위 라이선스 재배 확대',
+    focus: '제스프리 그린/골드(SunGold)/레드 출하 종료 시점, 그리스·이탈리아 신물량 개시 시기, 저장 상태 및 경도, 사이즈 분포, 국산 참다래와의 경합' },
+
+  { id: 'berry_cherry', title: '체리·블루베리', kr_items: ['체리', '블루베리'],
+    kr_sources: '체리: 미국(워싱턴·캘리포니아)·칠레·우즈베키스탄·키르기스스탄·호주·뉴질랜드 / 블루베리: 페루·칠레·미국·모로코·남아공·스페인',
+    global_watch: '칠레 체리의 중국 수요 집중도(춘절 수요가 한국 물량·가격에 직접 영향), 페루 블루베리 생산량 급증, 모로코·남아공 신규 수출 확대, 항공운임 변동',
+    focus: '미국 체리 시즌 종료 시점, 칠레 체리 개화·결실 상황(11~1월 출하 대비), 페루 블루베리 주차별 수출량, 항공 vs 해상 운송 비중, 사이즈(체리 J등급/블루베리 mm) 분포' },
+
+  { id: 'avocado', title: '아보카도', kr_items: ['아보카도'],
+    kr_sources: '페루·멕시코·콜롬비아·칠레·케냐·탄자니아·뉴질랜드·미국(캘리포니아)',
+    global_watch: '멕시코 미초아칸 작황 및 대미 수출 상황(글로벌 가격 결정 요인), 페루 수출 주차별 누적량, 케냐·탄자니아 아프리카 산지 확대, 유럽 수요 경합',
+    focus: '페루 하스 시즌 진행률과 종료 시점, 멕시코 물량 전환기, 케냐 시즌 개시, 사이즈(count 16~30) 분포 변화, 건물중(dry matter)·숙성 상태별 입고 편차' },
+
+  { id: 'kr_fruit', title: '국산 과일', kr_items: ['사과', '배', '포도', '감귤', '복숭아', '자두', '단감', '무화과'],
+    kr_sources: '사과: 경북(안동·영주·청송)·충북 / 배: 전남(나주)·충남(천안) / 포도: 경북(김천·상주)·충북(영동) / 감귤: 제주 / 복숭아: 경북·충북 / 단감: 경남(창원·진주) / 무화과: 전남(영암)',
+    global_watch: '수입 과일과의 대체 경합(수입 포도·오렌지·체리 물량이 국산 시세에 주는 영향), 중국·일본 작황이 한국 수출입에 미치는 영향',
+    focus: '기상청 예보 및 폭염/장마/태풍 피해, 일소·열과 피해 면적(구체 수치), 과수화상병·탄저병 발생, 명절 출하 계획, 저장물량 방출 시점, 품종별 출하 시기' },
+
+  { id: 'kr_veg', title: '국산 과채류', kr_items: ['수박', '참외', '멜론', '토마토', '방울토마토', '딸기'],
+    kr_sources: '수박: 충남(부여)·경북(고령) / 참외: 경북(성주) / 멜론: 전남·충남 / 토마토: 강원(철원·화천)·충남(부여) / 딸기: 충남(논산)·경남(진주·산청)',
+    global_watch: '시설재배 난방비(유가·전기료) 영향, 수입 토마토·딸기 여부, 종자·자재 가격',
+    focus: '폭염·한파에 따른 시설 내부 온도 관리, 작기 전환(여름→겨울 작형) 시점, 정식·육묘 상황, 병해충(탄저병·시들음병·총채벌레) 발생, 품종별 출하 비중' },
+
+  { id: 'macro', title: '공통 변수(환율·물류·정책)', kr_items: [],
+    kr_sources: '전 품목 공통',
+    global_watch: '원/달러 환율, 해상운임(SCFI·드류리), 유가(브렌트·WTI), 파나마운하·수에즈운하 통항, 컨테이너 선복 수급, 리퍼 컨테이너 부족 여부, 주요 선사 얼라이언스 개편',
+    focus: '할당관세 적용/종료 품목 및 시점, FTA 세율 변동, 검역 규제 변경(수입금지 해제·병해충 검출), 주요 선사 스케줄 변동, 물류 파업, 원산지 표시 단속' }
+];
+
+const weeklyReportStore = { generatedAt: null, weekOf: null, reports: [] };
+const WEEKLY_STORE_PATH = __dirname + '/weekly-report-store.json';
+
+function loadWeeklyStore() {
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(WEEKLY_STORE_PATH)) {
+      const j = JSON.parse(fs.readFileSync(WEEKLY_STORE_PATH, 'utf-8'));
+      Object.assign(weeklyReportStore, j);
+      console.log(`[주간리포트] 로드 완료: ${weeklyReportStore.weekOf || '없음'}`);
+    }
+  } catch (e) { console.error('[주간리포트] 로드 실패:', e.message); }
+}
+function saveWeeklyStore() {
+  try {
+    require('fs').writeFileSync(WEEKLY_STORE_PATH, JSON.stringify(weeklyReportStore), 'utf-8');
+  } catch (e) { console.error('[주간리포트] 저장 실패:', e.message); }
+}
+loadWeeklyStore();
+
+// 해당 그룹 품목들의 최근 경락 흐름을 간단 요약 (AI가 산지정보와 결합하도록)
+async function groupPriceContext(group) {
+  const out = [];
+  const isKrGroup = group.id.startsWith('kr_');
+  for (const item of group.kr_items) {
+    const origin = isKrGroup ? 'domestic' : 'import';
+    try {
+      const fc = FRUIT_CODES[item];
+      if (!fc) continue;
+      const series = await computeDailySeries(fc, item, origin, 14);
+      if (series.length < 3) continue;
+      const first = series[0].avgPricePerKg, last = series[series.length-1].avgPricePerKg;
+      const pct = Math.round((last - first) / first * 1000) / 10;
+      out.push(`${item}: 최근 2주 ${first}→${last}원/kg (${pct >= 0 ? '+' : ''}${pct}%)`);
+    } catch (e) { /* 품목 스킵 */ }
+  }
+  return out.join('\n');
+}
+
+async function generateWeeklyReport(group) {
+  const priceCtx = await groupPriceContext(group);
+  const today = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  const prompt = `당신은 한국 수입·국산 과일 유통 실무자를 위한 산지 애널리스트입니다. 독자는 15년 이상 경력의 도매·유통 담당자이며, 이 리포트로 실제 사입 의사결정을 합니다. 일반론이나 뻔한 이야기는 가치가 없습니다.
+
+오늘은 ${today}입니다. Google 검색으로 최근 1~3주 내 실제 뉴스·기상 정보·산지 리포트를 반드시 찾아서 작성하세요.
+
+[분석 대상]
+품목군: ${group.title}
+대상 품목: ${group.kr_items.length ? group.kr_items.join(', ') : '전 품목 공통'}
+
+[한국 수입/유통 산지 — 이 산지들은 반드시 개별적으로 확인]
+${group.kr_sources}
+
+[글로벌 시황 — 한국 도착가에 간접 영향을 주는 요인]
+${group.global_watch}
+
+[이번 주 중점 확인 사항]
+${group.focus}
+
+[가락시장 실제 경락 데이터 (최근 2주)]
+${priceCtx || '(해당 없음)'}
+
+━━━━━━━━━━━━━━━━━━━━━━
+작성 규칙 (엄수)
+━━━━━━━━━━━━━━━━━━━━━━
+1. 아래 4개 섹션을 정확히 이 제목(## 포함)으로 작성하세요. 괄호 안 분량 안내는 지침일 뿐이므로 제목에 포함하지 마세요.
+1-1. 산지 상황은 400~550자, 수급 전망은 350~500자로 작성하세요.
+2. 검색으로 확인한 구체적 사실만 쓰세요. 날짜, 수치(기온·강수량·면적·수출량·주차), 지역명, 기관명을 반드시 포함하세요.
+3. 확인되지 않은 내용은 절대 추측하거나 그럴듯하게 지어내지 마세요. 검색으로 확인 못 한 항목은 "확인된 정보 없음"이라고 명시하세요. 태풍 이름, 기상 현상, 수치는 특히 정확해야 하며, 불확실하면 언급하지 마세요.
+4. 산지가 여러 곳인 품목은 산지별로 나눠서 쓰세요. "미국은 ~, 이스라엘은 ~" 형태로 구분하고, 지금 어느 산지가 출하 시즌인지 명시하세요.
+5. 존댓말, 실무 톤. 과장·마케팅 표현 금지.
+
+## 산지 상황
+각 산지별 기상(구체적 수치), 생육 단계, 병해충, 재배면적·작황 변화를 씁니다. 지금 출하 중인 산지와 대기 중인 산지를 구분하세요. 전 세계적 이슈가 한국 반입 산지에 어떻게 파급되는지도 연결해서 설명하세요.
+
+## 수급 전망
+향후 2~8주 물량 증감을 쓰되, **물량만이 아니라 규격·품질 분포를 반드시 포함**하세요:
+- 대과/소과 비율 변화 (실무에서 물량만큼 중요)
+- 등급(상/중/하) 분포, 당도·경도 등 품질 지표
+- 사이즈 스펙 변화 (예: 아보카도 count, 바나나 CP 등급, 오렌지 사이즈)
+- 산지 전환 시점 (A산지 종료 → B산지 개시가 언제인지)
+
+## 가격 방향
+위 경락 데이터와 산지 상황을 결합해 방향성을 제시하세요. **상승세/하락세/보합세** 중 하나를 명시하고, 근거가 되는 산지 요인을 연결하세요. 품목별로 다르면 나눠 쓰세요.
+
+## 실무 가이드
+사입 타이밍(지금/관망/분할), 대체 산지 검토, 규격 확보 전략, 리스크 헤지 방안을 구체적으로 제시하세요. "~할 필요가 있습니다" 같은 모호한 표현 대신 실제 행동을 지시하세요.`;
+
+  const res = await callGemini(prompt, true, 12000, 2000, true);
+  return {
+    id: group.id, title: group.title,
+    krSources: group.kr_sources, items: group.kr_items,
+    text: res.text, sources: res.sources, queries: res.queries,
+    generatedAt: new Date().toISOString()
+  };
+}
+
+async function runWeeklyReportBatch() {
+  const kst = new Date(Date.now() + 9*3600*1000);
+  const weekOf = kst.toISOString().slice(0,10);
+  console.log(`[주간리포트] 생성 시작 (${weekOf})`);
+  const reports = [];
+  for (const group of WEEKLY_REPORT_GROUPS) {
+    try {
+      const r = await generateWeeklyReport(group);
+      reports.push(r);
+      console.log(`[주간리포트] ${group.title} 완료 (${r.text.length}자)`);
+      await new Promise(res => setTimeout(res, 3000)); // rate limit 여유
+    } catch (e) {
+      console.error(`[주간리포트] ${group.title} 실패:`, e.message);
+    }
+  }
+  if (reports.length) {
+    weeklyReportStore.generatedAt = new Date().toISOString();
+    weeklyReportStore.weekOf = weekOf;
+    weeklyReportStore.reports = reports;
+    saveWeeklyStore();
+    console.log(`[주간리포트] 저장 완료: ${reports.length}개 그룹`);
+  }
+  return reports.length;
+}
+
+// 조회 API
+app.get('/api/weekly-report', (req, res) => {
+  res.json({
+    success: true,
+    weekOf: weeklyReportStore.weekOf,
+    generatedAt: weeklyReportStore.generatedAt,
+    count: weeklyReportStore.reports.length,
+    reports: weeklyReportStore.reports
+  });
+});
+
+// 생성 트리거 (cron-job.org가 매주 월 07:00 KST 호출 / 관리자 수동 테스트 겸용)
+let weeklyBatchRunning = false;
+app.get('/api/admin/weekly-report/generate', async (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'jay2026trago')) {
+    return res.status(403).json({ success: false, error: '권한 없음' });
+  }
+  const only = req.query.group; // 특정 그룹만 테스트하고 싶을 때
+  if (only) {
+    const g = WEEKLY_REPORT_GROUPS.find(x => x.id === only);
+    if (!g) return res.json({ success: false, error: '없는 그룹 id' });
+    try {
+      const r = await generateWeeklyReport(g);
+      return res.json({ success: true, report: r });
+    } catch (e) { return res.json({ success: false, error: e.message }); }
+  }
+  if (weeklyBatchRunning) {
+    return res.json({ success: false, error: '이미 생성 중입니다. 중복 실행을 막았습니다.' });
+  }
+  weeklyBatchRunning = true;
+  res.json({ success: true, message: `전체 생성 시작 (백그라운드, ${WEEKLY_REPORT_GROUPS.length}개 그룹)` });
+  runWeeklyReportBatch()
+    .catch(e => console.error('[주간리포트] 배치 실패:', e.message))
+    .finally(() => { weeklyBatchRunning = false; });
+});
+
+// 생성 상태 확인
+app.get('/api/admin/weekly-report/status', (req, res) => {
+  res.json({
+    success: true,
+    running: weeklyBatchRunning,
+    weekOf: weeklyReportStore.weekOf,
+    generatedAt: weeklyReportStore.generatedAt,
+    count: weeklyReportStore.reports.length,
+    groups: weeklyReportStore.reports.map(r => ({ id: r.id, title: r.title, chars: (r.text||'').length }))
+  });
+});
 
 function hashStr(s) {
   let h = 0;

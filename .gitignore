@@ -1,0 +1,8 @@
+.env
+node_modules
+raw/
+backups/
+weekly-report-store.json
+ai-briefing-store.json
+check-grape-kinds.js
+check-grape-kinds2.js
