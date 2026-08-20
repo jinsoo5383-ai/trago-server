@@ -471,7 +471,8 @@ function getBoxKg(item) {
   const map = state.origin === 'domestic' ? BOX_KG_DOMESTIC : BOX_KG_IMPORT;
   return map[item] || BOX_KG_IMPORT[item] || BOX_KG_DOMESTIC[item] || 10;
 }
-const state = { date: new Date(), item: '바나나', origin: 'import', tab: 'trades' };
+const state = { date: new Date(), item: '바나나', origin: 'import', tab: 'trades', variety: null };
+const GRAPE_VARIETIES = ['샤인머스켓', '거봉', '캠벨얼리'];
 let chartA = null, chartB = null;
 
 // ── 캐시된 fetch: 같은 URL은 세션 내에서 재호출 안 함 ──
@@ -503,6 +504,29 @@ function renderChips() {
   document.getElementById('chips').innerHTML = currentItems().map(i =>
     `<button class="chip${i===state.item?' on':''}" onclick="pickItem('${i}')">${i}</button>`
   ).join('');
+  renderVarietyChips();
+}
+function renderVarietyChips() {
+  let el = document.getElementById('varietyChips');
+  if (state.item === '포도' && state.origin === 'domestic') {
+    if (!state.variety) state.variety = '샤인머스켓';
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'varietyChips';
+      el.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;';
+      document.getElementById('chips').insertAdjacentElement('afterend', el);
+    }
+    el.style.display = 'flex';
+    el.innerHTML = GRAPE_VARIETIES.map(v =>
+      `<button class="chip${v===state.variety?' on':''}" style="font-size:11px;padding:4px 10px;" onclick="pickVariety('${v}')">${v}</button>`
+    ).join('');
+  } else {
+    state.variety = null;
+    if (el) el.style.display = 'none';
+  }
+}
+function pickVariety(v) {
+  state.variety = v; renderVarietyChips(); refresh();
 }
 function pickOrigin(o) {
   state.origin = o;
@@ -566,7 +590,8 @@ async function loadBriefing() {
   const key = `${state.item}|${state.origin}`;
   slots.forEach(s => { if (s.dataset.key !== key) s.innerHTML = '<div class="skel" style="height:80px;"></div>'; });
   try {
-    const j = await cachedFetch(`${SERVER}/api/briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    const bvp = state.variety ? '&variety=' + encodeURIComponent(state.variety) : '';
+    const j = await cachedFetch(`${SERVER}/api/briefing?item=${encodeURIComponent(state.item)}&origin=${state.origin}${bvp}`);
     if (myReqId !== briefingReqId) return; // 그 사이 다른 품목으로 넘어갔으면 버림
     slots.forEach(slot => {
       const tab = slot.id.replace('brief-', '');
@@ -601,7 +626,8 @@ async function loadTrades() {
   el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const mkt = document.getElementById('mktfilter').value;
   try {
-    const json = await cachedFetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}${mkt?'&market='+mkt:''}`);
+    const vp = state.variety ? '&variety=' + encodeURIComponent(state.variety) : '';
+    const json = await cachedFetch(`${SERVER}/api/trades?item=${encodeURIComponent(state.item)}&date=${dateStr()}&origin=${state.origin}${mkt?'&market='+mkt:''}${vp}`);
     if (!json.success || !json.data?.length) {
       tradesData = [];
       el.innerHTML = `<div class="notice">${dateStr()} ${state.item} 거래 데이터가 없어요.<br>휴장일(일요일)이거나 아직 경매 전일 수 있어요.</div>`;
@@ -957,7 +983,8 @@ async function loadStats() {
   }
   // 가격 예측
   try {
-    const fj = await cachedFetch(`${SERVER}/api/forecast?item=${encodeURIComponent(state.item)}&origin=${state.origin}`);
+    const varietyParam = state.variety ? `&variety=${encodeURIComponent(state.variety)}` : '';
+    const fj = await cachedFetch(`${SERVER}/api/forecast?item=${encodeURIComponent(state.item)}&origin=${state.origin}${varietyParam}`);
     const fcBody = document.getElementById('fcBody');
     if (!fj.success) {
       fcBody.innerHTML = `<div class="notice" style="padding:16px;">${fj.error || '예측 불가'}</div>`;

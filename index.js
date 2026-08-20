@@ -430,6 +430,24 @@ const FRUIT_CODES = {
   '무화과': { l:'06', m:'27' }, '자몽': { l:'06', m:'19' }
 };
 // 대시보드(trago_live.html) 개별시장 조회용 수입과일 목록
+
+// ── 품종 필터: 실거래 품목명(corp_gds_vrty_nm)에 품종 키워드가 포함되는지로 판별 ──
+// API가 품종 파라미터를 지원하지 않아 텍스트 매칭으로 분리. 표기가 제각각이라 별칭을 넉넉히 둠.
+const VARIETY_KEYWORDS = {
+  '샤인머스켓': ['샤인', '머스켓', '머스캣'],
+  '거봉': ['거봉'],
+  '캠벨얼리': ['캠벨', '캠벨얼리']
+};
+function applyVarietyFilter(arr, variety) {
+  if (!variety) return arr;
+  const kws = VARIETY_KEYWORDS[variety];
+  if (!kws) return arr;
+  return arr.filter(d => {
+    const nm = String(d.corp_gds_vrty_nm || '');
+    return kws.some(k => nm.includes(k));
+  });
+}
+
 const IMPORT_FRUITS = ['바나나','망고','파인애플','오렌지','레몬','포도','체리','키위','블루베리','아보카도','멜론','자몽'];
 // 하위호환용 별칭
 const NATIONWIDE_FRUIT_CODES = Object.fromEntries(IMPORT_FRUITS.map(n => [n, FRUIT_CODES[n].m]));
@@ -499,6 +517,7 @@ app.get('/api/trades', async (req, res) => {
   const date = req.query.date || kst.toISOString().slice(0,10);
   const item = req.query.item || '바나나';
   const marketCd = req.query.market || '';
+  const variety = req.query.variety || '';
   const fc = FRUIT_CODES[item];
   if (!fc) {
     return res.json({ success: false, error: `지원하지 않는 품목입니다. 지원 품목: ${Object.keys(FRUIT_CODES).join(', ')}` });
@@ -506,6 +525,7 @@ app.get('/api/trades', async (req, res) => {
   try {
     let arr = await fetchTradesDay(date, fc.l, fc.m, marketCd);
     arr = applyOriginFilter(arr, item, req.query.origin || 'import');
+    arr = applyVarietyFilter(arr, variety);
     const grouped = {};
     arr.forEach(d => {
       const price = parseFloat(d.scsbd_prc);
@@ -802,6 +822,7 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/forecast', async (req, res) => {
   const item = req.query.item || '바나나';
   const origin = req.query.origin || 'import';
+  const variety = req.query.variety || (item === '포도' ? '샤인머스켓' : undefined);
   const fc = FRUIT_CODES[item];
   if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
   try {
@@ -834,7 +855,7 @@ app.get('/api/forecast', async (req, res) => {
     const confidenceOf = (h, seasonal) => h <= 1 ? '높음' : h <= 6 ? '보통' : h <= 26 ? '낮음' : (seasonal ? '낮음' : '매우 낮음');
     const Z = 1.28; // 80% 구간
     // 계절지수 (KAMIS 최근 1년, 지원 품목만)
-    const seasonal = await getSeasonalIndex(item, origin);
+    const seasonal = await getSeasonalIndex(item, origin, variety);
     const seasonalIdx = seasonal?.indices || null;
     const nowMonth = new Date(Date.now() + 9*3600*1000).getUTCMonth(); // 0-11
     const forecasts = HORIZONS.map(({label, h}) => {
@@ -887,13 +908,15 @@ const KAMIS_SEASONAL_CODES = {
   'domestic|사과': { cat:'400', code:'411', kind:'05' },
   'domestic|배': { cat:'400', code:'412', kind:'01' },
   'domestic|복숭아': { cat:'400', code:'413', kind:'01' },
-  'domestic|포도': { cat:'400', code:'414', kind:'01' },
+  'domestic|포도-캠벨얼리': { cat:'400', code:'414', kind:'01' },
+  'domestic|포도-거봉': { cat:'400', code:'414', kind:'02' },
+  'domestic|포도-샤인머스켓': { cat:'400', code:'414', kind:'12' },
   'domestic|수박': { cat:'200', code:'221', kind:'00' },
   'domestic|참외': { cat:'200', code:'222', kind:'00' }
 };
 const seasonalCache = new Map(); // key → { data: {indices, yoyPct}, fetchedAt }
-async function getSeasonalIndex(item, origin) {
-  const key = `${origin}|${item}`;
+async function getSeasonalIndex(item, origin, variety) {
+  const key = variety ? `${origin}|${item}-${variety}` : `${origin}|${item}`;
   const codes = KAMIS_SEASONAL_CODES[key];
   if (!codes) return null;
   const cached = seasonalCache.get(key);
@@ -951,7 +974,7 @@ const SERVER_BOX_KG = {
 
 // ── 시황 브리핑: 실데이터에서 규칙 기반으로만 생성 (추측·창작 없음) ──
 // 시황 브리핑 로직 본체 - /api/briefing 라우트와 AI 배치생성이 공용으로 사용
-async function computeBriefing(item, origin) {
+async function computeBriefing(item, origin, variety) {
   const fc = FRUIT_CODES[item];
   if (!fc) return { success: false, error: '지원하지 않는 품목입니다.' };
   const series = await computeDailySeries(fc, item, origin, 21);
@@ -1043,7 +1066,7 @@ async function computeBriefing(item, origin) {
       }
     }
     // ⑤ 계절 위치 + ⑥ 전년비 (KAMIS 지원 품목만) + 재고전략 신호
-    const seasonal = await getSeasonalIndex(item, origin);
+    const seasonal = await getSeasonalIndex(item, origin, variety);
     if (seasonal?.indices) {
       const idx = seasonal.indices;
       const nowM = new Date(Date.now() + 9*3600*1000).getUTCMonth();
@@ -1085,8 +1108,9 @@ async function computeBriefing(item, origin) {
 app.get('/api/briefing', async (req, res) => {
   const item = req.query.item || '바나나';
   const origin = req.query.origin || 'import';
+  const variety = req.query.variety || (item === '포도' && origin === 'domestic' ? '샤인머스켓' : undefined);
   try {
-    const result = await computeBriefing(item, origin);
+    const result = await computeBriefing(item, origin, variety);
     res.json(result);
   } catch (e) {
     res.json({ success: false, error: e.message });
@@ -1532,7 +1556,8 @@ function hashStr(s) {
 }
 
 async function generateAIBriefing(item, origin, prevHash) {
-  const brief = await computeBriefing(item, origin);
+  const defaultVariety = (item === '포도' && origin === 'domestic') ? '샤인머스켓' : undefined;
+  const brief = await computeBriefing(item, origin, defaultVariety);
   if (!brief.success) return null;
   const boxKg = (origin === 'domestic' ? SERVER_BOX_KG.domestic : SERVER_BOX_KG.import)[item] || 10;
   const factSheet = {
