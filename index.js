@@ -1102,7 +1102,7 @@ async function computeBriefing(item, origin, variety) {
         lines.push({ tag: '전년비', text: `KAMIS 가락도매 기준 전년 동월 대비 ${y > 0 ? '+' : ''}${y}%${Math.abs(y) > 20 ? ' — 작년과 수급 상황이 크게 다른 점 유의하세요' : ''}.` });
       }
     }
-  return { success: true, item, origin, date: lastRow.date, lines, actions,
+  return { success: true, item, origin, date: lastRow.date, lastPrice: lastRow.avgPricePerKg, lines, actions,
       note: '관측·신호 모두 경락/KAMIS 실데이터에서 자동 산출된 참고 정보입니다. 운송비·거래처 조건·품질 차이는 반영되지 않으며, 최종 사입 판단은 직접 하셔야 해요.' };
 }
 
@@ -1816,8 +1816,19 @@ async function generateAIBriefing(item, origin, prevHash) {
     관측: brief.lines.map(l => `[${l.tag}] ${l.text}`),
     신호: brief.actions.map(a => `[${a.tag}] ${a.text}`)
   };
-  const factHash = hashStr(JSON.stringify(factSheet));
-  if (prevHash && prevHash === factHash) return { skipped: true, hash: factHash }; // 데이터 변화 없음 → Gemini 호출 생략(비용 0)
+  // 해시는 문장 전체가 아니라 "5% 구간으로 뭉갠 가격"으로 만든다.
+  // 문장에 원 단위 숫자가 박혀 있으면 1원만 움직여도 매번 재생성돼 비용이 샜음(28/28 재생성).
+  // 5% 이내 변동은 실무적으로 "별일 없는 날"이라 이전 브리핑을 그대로 쓴다.
+  const priceBucket = (p) => p > 0 ? Math.round(Math.log(p) / Math.log(1.05)) : 0;
+  const hashBase = {
+    품목: item, 구분: origin,
+    가격구간: priceBucket(brief.lastPrice || 0),
+    관측태그: (brief.lines || []).map(l => l.tag).join(','),
+    신호태그: (brief.actions || []).map(a => a.tag).join(',')
+  };
+  const factHash = hashStr(JSON.stringify(hashBase));
+  // 가격을 못 읽었으면 스킵 판정을 신뢰할 수 없으므로 그냥 생성한다
+  if (brief.lastPrice > 0 && prevHash && prevHash === factHash) return { skipped: true, hash: factHash }; // 5% 이내 변동 → Gemini 호출 생략(비용 0)
   const prompt = `너는 한국 농산물 도매시장 전문 애널리스트야. 아래는 시스템이 실제 경락 데이터로 이미 계산해둔 사실이야.
 
 ${JSON.stringify(factSheet, null, 2)}
@@ -1911,6 +1922,12 @@ app.get('/api/ai-briefing/test', async (req, res) => {
 // 전체 품목×원산지 한번에 생성 - 시간 걸리니 백그라운드로 돌리고 바로 응답, 진행상황은 /status로 확인
 let batchRunning = false, batchProgress = { done: 0, total: 0, current: '' };
 app.get('/api/ai-briefing/generate-all', (req, res) => {
+  // 일요일은 도매시장 휴장이라 새 경락 데이터가 없음 → Gemini 호출 자체를 생략
+  const kstNow = new Date(Date.now() + 9*3600*1000);
+  if (kstNow.getUTCDay() === 0 && req.query.force !== '1') {
+    console.log('[전체생성] 일요일 휴장이라 생략함 (force=1로 강제 실행 가능)');
+    return res.json({ success: true, skipped: true, reason: '일요일 휴장' });
+  }
   if (batchRunning) return res.json({ success: false, error: '이미 실행 중이에요. /api/ai-briefing/generate-all/status로 진행상황 확인하세요.' });
   batchRunning = true;
   (async () => {
