@@ -1630,7 +1630,16 @@ const WEEKLY_REPORT_GROUPS = [
 ];
 
 const weeklyReportStore = { generatedAt: null, weekOf: null, reports: [] };
-const WEEKLY_STORE_PATH = __dirname + '/weekly-report-store.json';
+// Railway 볼륨(/app/data)에 저장 - 재배포해도 리포트가 안 날아감. 볼륨 없는 로컬은 프로젝트 폴더로 폴백.
+let WEEKLY_STORE_PATH;
+try {
+  const _vd = '/app/data';
+  if (!require('fs').existsSync(_vd)) require('fs').mkdirSync(_vd, { recursive: true });
+  WEEKLY_STORE_PATH = _vd + '/weekly-report-store.json';
+} catch (e) {
+  WEEKLY_STORE_PATH = __dirname + '/weekly-report-store.json';
+}
+console.log(`[주간리포트] 저장 경로: ${WEEKLY_STORE_PATH}`);
 
 function loadWeeklyStore() {
   try {
