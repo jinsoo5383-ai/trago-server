@@ -634,19 +634,21 @@ function renderOriginReport() {
   const fmtBody = (lines) => lines.map(l => {
     let t = l.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
     t = t.replace(/^\s*[\*\-]\s+/, '· ');
-    return `<div style="margin-bottom:6px;line-height:1.65;">${t}</div>`;
+    return `<div style="margin-bottom:9px;line-height:1.8;">${t}</div>`;
   }).join('');
 
-  // 첫 섹션은 앞 2줄만 미리보기, 나머지는 잠금
-  const first = sections[0];
-  const rest = sections.slice(1);
+  // 한줄요약은 게이트 밖에서 크게 보여주고, 나머지 본문만 잠근다
+  const summarySec = sections.find(s => s.title.replace(/\s/g,'') === '한줄요약');
+  const bodySecs = sections.filter(s => s !== summarySec);
+  const first = bodySecs[0];
+  const rest = bodySecs.slice(1);
   const previewLines = first ? first.lines.slice(0, 2) : [];
   const hiddenFirst = first ? first.lines.slice(2) : [];
 
   const sectionCard = (s) => `
     <div class="card" style="margin-bottom:10px;">
-      <b style="font-size:13.5px;">${s.title}</b>
-      <div style="font-size:12.5px;color:var(--ink);margin-top:8px;">${fmtBody(s.lines)}</div>
+      <b style="font-size:15px;">${s.title}</b>
+      <div style="font-size:14px;color:var(--ink);margin-top:10px;">${fmtBody(s.lines)}</div>
     </div>`;
 
   const srcHtml = (rep.sources?.length) ? `
@@ -657,10 +659,17 @@ function renderOriginReport() {
       </div>
     </div>` : '';
 
-  document.getElementById('orgBody').innerHTML = `
+  const sumLines = summarySec ? summarySec.lines.map(l => l.replace(/^[`\*\-\s]+|[`\*]+$/g,'').trim()).filter(Boolean) : [];
+  const summaryHtml = sumLines.length ? `
+    <div class="card" style="margin-bottom:12px;background:#EDF3F0;border-left:4px solid #157A5B;">
+      <div style="font-size:19px;font-weight:800;color:#157A5B;line-height:1.4;">${sumLines[0]}</div>
+      ${sumLines[1] ? `<div style="font-size:14px;color:var(--ink);margin-top:7px;line-height:1.6;">${sumLines[1]}</div>` : ''}
+    </div>` : '';
+
+  document.getElementById('orgBody').innerHTML = summaryHtml + `
     <div class="card" style="margin-bottom:10px;">
-      <b style="font-size:13.5px;">${first ? first.title : rep.title}</b>
-      <div style="font-size:12.5px;color:var(--ink);margin-top:8px;">${fmtBody(previewLines)}</div>
+      <b style="font-size:15px;">${first ? first.title : rep.title}</b>
+      <div style="font-size:14px;color:var(--ink);margin-top:10px;">${fmtBody(previewLines)}</div>
       <div class="adgate" style="margin-top:4px;">
         <div class="locked">${fmtBody(hiddenFirst)}</div>
         <div class="lockbtn">
