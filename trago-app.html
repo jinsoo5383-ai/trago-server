@@ -535,7 +535,7 @@ function renderVarietyChips() {
       el.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;';
       document.getElementById('chips').insertAdjacentElement('afterend', el);
     }
-    el.style.display = 'flex';
+    el.style.display = (state.tab === 'origin') ? 'none' : 'flex';
     el.innerHTML = GRAPE_VARIETIES.map(v =>
       `<button class="chip${v===state.variety?' on':''}" style="font-size:11px;padding:4px 10px;" onclick="pickVariety('${v}')">${v}</button>`
     ).join('');
@@ -642,8 +642,8 @@ function renderOriginReport() {
   const bodySecs = sections.filter(s => s !== summarySec);
   const first = bodySecs[0];
   const rest = bodySecs.slice(1);
-  const previewLines = first ? first.lines.slice(0, 2) : [];
-  const hiddenFirst = first ? first.lines.slice(2) : [];
+  const previewLines = [];                      // 무료 노출은 한줄요약 카드까지만
+  const hiddenFirst = first ? first.lines : []; // 본문은 첫 줄부터 잠금
 
   const sectionCard = (s) => `
     <div class="card" style="margin-bottom:10px;">
@@ -701,6 +701,15 @@ function doUnlockOrigin(btn) {
 
 function goTab(t) {
   state.tab = t;
+  // 산지시황은 자체 품목군 칩을 쓰므로 상단 품목 선택 UI를 숨겨 중복을 없앤다
+  const topSel = document.getElementById('chips')?.parentElement;
+  const isOrigin = (t === 'origin');
+  ['chips','varietyChips'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isOrigin ? 'none' : '';
+  });
+  const seg = document.getElementById('seg-import')?.parentElement;
+  if (seg) seg.style.display = isOrigin ? 'none' : '';
   document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
   document.getElementById('pane-'+t).classList.add('on');
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.pane===t));
