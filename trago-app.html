@@ -535,7 +535,8 @@ function renderVarietyChips() {
       el.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;';
       document.getElementById('chips').insertAdjacentElement('afterend', el);
     }
-    el.style.display = (state.tab === 'origin') ? 'none' : 'flex';
+    el.style.display = 'flex';
+    el.hidden = (state.tab === 'origin');
     el.innerHTML = GRAPE_VARIETIES.map(v =>
       `<button class="chip${v===state.variety?' on':''}" style="font-size:11px;padding:4px 10px;" onclick="pickVariety('${v}')">${v}</button>`
     ).join('');
@@ -701,15 +702,13 @@ function doUnlockOrigin(btn) {
 
 function goTab(t) {
   state.tab = t;
-  // 산지시황은 자체 품목군 칩을 쓰므로 상단 품목 선택 UI를 숨겨 중복을 없앤다
-  const topSel = document.getElementById('chips')?.parentElement;
+  // 산지시황은 자체 품목군 칩을 쓰므로 상단 품목 선택 UI를 숨겨 중복을 없앤다.
+  // display를 ''로 되돌리면 원래 flex 레이아웃이 block으로 떨어져 깨지므로 hidden 속성으로 토글한다.
   const isOrigin = (t === 'origin');
-  ['chips','varietyChips'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = isOrigin ? 'none' : '';
-  });
   const seg = document.getElementById('seg-import')?.parentElement;
-  if (seg) seg.style.display = isOrigin ? 'none' : '';
+  [document.getElementById('chips'), document.getElementById('varietyChips'), seg].forEach(el => {
+    if (el) el.hidden = isOrigin;
+  });
   document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
   document.getElementById('pane-'+t).classList.add('on');
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.pane===t));
