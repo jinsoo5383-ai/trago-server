@@ -1983,10 +1983,13 @@ app.get('/api/ai-briefing/generate-all/status', (req, res) => {
 function isLikelyTragoApp(ua) {
   if (!ua) return false;
   if (ua.includes('CFNetwork')) return true; // 앱의 서버 깨우기 핑
+  // 안드로이드 WebView는 UA에 "; wv)" 토큰이 붙는다. 크롬 브라우저에는 없음.
+  // (안드로이드 WebView도 Safari/537.36을 포함하므로 Safari 검사보다 먼저 판정해야 함)
+  if (/;\s*wv\)/.test(ua)) return true;
   // 진짜 브라우저(사파리, 크롬, 파이어폭스 등)는 항상 끝에 "Safari/xxx" 토큰이 붙음.
-  // RN WebView는 이 토큰이 없으므로, 있으면 무조건 브라우저로 간주해 차단.
+  // iOS RN WebView는 이 토큰이 없으므로, 있으면 브라우저로 간주해 차단.
   if (/Safari\/[\d.]+/.test(ua)) return false;
-  if (/Mobile\/15E148/.test(ua)) return true; // 앱 내 WebView
+  if (/Mobile\/15E148/.test(ua)) return true; // iOS 앱 내 WebView
   return false;
 }
 
