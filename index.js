@@ -1663,6 +1663,79 @@ function saveWeeklyStore() {
 loadWeeklyStore();
 
 // 해당 그룹 품목들의 최근 경락 흐름을 간단 요약 (AI가 산지정보와 결합하도록)
+// ── 산지 팩트 사전 수집 ──
+// 같은 산지(예: 필리핀 민다나오)가 여러 품목 그룹에 겹쳐 등장하는데, 그룹별로 따로 물어보면
+// 각자 다른 기사를 근거로 삼아 "고온 건조" vs "잦은 강우"처럼 서로 모순된 내용이 나왔다.
+// 그래서 산지 기상·작황은 먼저 한 번만 조회해 확정하고, 각 품목 리포트가 그 값을 공유한다.
+const ORIGIN_FACTS = [
+  { id: 'ph', name: '필리핀 (민다나오)', crops: '바나나, 파인애플' },
+  { id: 'vn', name: '베트남', crops: '바나나, 파인애플, 망고' },
+  { id: 'ec', name: '에콰도르·과테말라·코스타리카 (중미)', crops: '바나나, 파인애플' },
+  { id: 'pe', name: '페루', crops: '망고, 포도, 아보카도, 블루베리' },
+  { id: 'cl', name: '칠레', crops: '포도, 체리, 블루베리, 레몬, 오렌지' },
+  { id: 'us', name: '미국 (캘리포니아·워싱턴·플로리다)', crops: '오렌지, 레몬, 자몽, 체리' },
+  { id: 'za', name: '남아프리카공화국', crops: '오렌지, 레몬, 자몽, 포도' },
+  { id: 'nz', name: '뉴질랜드', crops: '키위' },
+  { id: 'mx', name: '멕시코', crops: '아보카도, 망고' },
+  { id: 'kr', name: '대한민국 (국내 주산지)', crops: '사과, 배, 포도, 감귤, 복숭아, 단감, 수박, 참외, 토마토, 딸기' }
+];
+
+let originFactsCache = { weekOf: null, facts: {} };
+
+async function collectOriginFacts() {
+  const today = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
+  const facts = {};
+  for (const o of ORIGIN_FACTS) {
+    const prompt = `오늘은 ${today}입니다. Google 검색으로 ${o.name}의 **현재 시점** 농업 기상·작황 상황을 확인해 주세요.
+대상 작물: ${o.crops}
+
+[규칙]
+1. 반드시 최근 3주 이내에 보도된 자료만 사용하세요. 오래된 기사의 과거 날씨를 현재처럼 쓰면 안 됩니다.
+2. 기상 정보는 기상청·정부기관·업계 매체 등 출처 기관명을 함께 적으세요. (예: 필리핀 기상청 PAGASA)
+3. 확인되지 않으면 지어내지 말고 "확인된 정보 없음"이라고 쓰세요.
+4. 아래 5줄 형식으로만, 각 줄 한 문장으로 짧게 답하세요. 다른 말은 넣지 마세요.
+
+기상: (현재 강수·기온·이상기후 여부. 수치와 출처 포함)
+작황: (생육 단계, 수확 진행률, 병해충)
+물량: (출하량 증감, 수출 전망치)
+물류: (항만·운임·선적 이슈)
+정책: (관세·검역·통화 등 특이사항)`;
+    try {
+      const res = await callGemini(prompt, true, 2000, 800, true);
+      facts[o.id] = { name: o.name, text: res.text, sources: res.sources };
+      console.log(`[산지팩트] ${o.name} 수집 완료`);
+      await new Promise(r => setTimeout(r, 2500));
+    } catch (e) {
+      console.error(`[산지팩트] ${o.name} 실패:`, e.message);
+    }
+  }
+  return facts;
+}
+
+// 그룹이 참조할 산지 팩트를 골라 프롬프트용 텍스트로 만든다
+function originFactsFor(group, facts) {
+  const ids = (WEEKLY_GROUP_ORIGINS[group.id] || []);
+  const lines = ids.map(id => facts[id]).filter(Boolean)
+    .map(f => `[${f.name}]\n${f.text}`);
+  return lines.length ? lines.join('\n\n') : '';
+}
+
+// 각 품목 그룹이 참조할 산지 id 목록
+const WEEKLY_GROUP_ORIGINS = {
+  banana: ['ph', 'vn', 'ec'],
+  pineapple: ['ph', 'ec', 'vn'],
+  mango: ['pe', 'vn', 'mx'],
+  orange: ['us', 'za', 'cl'],
+  lemon_grapefruit: ['us', 'za', 'cl'],
+  grape: ['cl', 'pe', 'za'],
+  kiwi: ['nz', 'cl'],
+  berry_cherry: ['cl', 'pe', 'us'],
+  avocado: ['pe', 'mx'],
+  kr_fruit: ['kr'],
+  kr_veg: ['kr'],
+  macro: []
+};
+
 async function groupPriceContext(group) {
   const out = [];
   const isKrGroup = group.id.startsWith('kr_');
@@ -1681,7 +1754,7 @@ async function groupPriceContext(group) {
   return out.join('\n');
 }
 
-async function generateWeeklyReport(group) {
+async function generateWeeklyReport(group, originFacts = {}) {
   const priceCtx = await groupPriceContext(group);
   const today = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
   const prompt = `당신은 한국 수입·국산 과일 유통 실무자를 위한 산지 애널리스트입니다. 독자는 15년 이상 경력의 도매·유통 담당자이며, 이 리포트로 실제 사입 의사결정을 합니다. 일반론이나 뻔한 이야기는 가치가 없습니다.
@@ -1701,6 +1774,9 @@ ${group.global_watch}
 [이번 주 중점 확인 사항]
 ${group.focus}
 
+[확정된 산지 현황 — 이 주에 먼저 조사해 확정한 사실입니다]
+${originFactsFor(group, originFacts) || '(수집된 산지 정보 없음)'}
+
 [가락시장 실제 경락 데이터 (최근 2주)]
 ${priceCtx || '(해당 없음)'}
 
@@ -1710,7 +1786,8 @@ ${priceCtx || '(해당 없음)'}
 1. 아래 5개 섹션을 정확히 이 제목(## 포함)으로 작성하세요. 괄호 안 분량 안내는 지침일 뿐이므로 제목에 포함하지 마세요.
 1-1. 산지 상황은 400~550자, 수급 전망은 350~500자로 작성하세요.
 2. 검색으로 확인한 구체적 사실만 쓰세요. 날짜, 수치(기온·강수량·면적·수출량·주차), 지역명, 기관명을 반드시 포함하세요.
-3. 확인되지 않은 내용은 절대 추측하거나 그럴듯하게 지어내지 마세요. 검색으로 확인 못 한 항목은 "확인된 정보 없음"이라고 명시하세요. 태풍 이름, 기상 현상, 수치는 특히 정확해야 하며, 불확실하면 언급하지 마세요.
+3. 위 "확정된 산지 현황"이 있으면 그것을 기상·작황의 기준으로 삼으세요. 거기 적힌 내용과 모순되는 기상 정보를 검색으로 새로 찾아 쓰면 안 됩니다. 같은 산지가 다른 품목 리포트에도 등장하므로 내용이 일치해야 합니다.
+3-1. 확인되지 않은 내용은 절대 추측하거나 그럴듯하게 지어내지 마세요. 검색으로 확인 못 한 항목은 "확인된 정보 없음"이라고 명시하세요. 태풍 이름, 기상 현상, 수치는 특히 정확해야 하며, 불확실하면 언급하지 마세요.
 4. 산지가 여러 곳인 품목은 산지별로 나눠서 쓰세요. "미국은 ~, 이스라엘은 ~" 형태로 구분하고, 지금 어느 산지가 출하 시즌인지 명시하세요.
 5. 존댓말, 실무 톤. 과장·마케팅 표현 금지.
 6. 독자는 도매시장 중도매인·시장 상인입니다. 영어 약어나 무역·금융 전문용어를 쓸 때는 반드시 괄호로 쉬운 우리말을 함께 적으세요. 예: "Landed Cost(수입 원가)", "인코텀즈(무역 계약 조건)", "Biosecurity(방역)", "TR4(바나나 시들음병)". 괄호 설명 없이 영어 약어만 쓰면 안 됩니다.
@@ -1750,10 +1827,17 @@ async function runWeeklyReportBatch() {
   const kst = new Date(Date.now() + 9*3600*1000);
   const weekOf = kst.toISOString().slice(0,10);
   console.log(`[주간리포트] 생성 시작 (${weekOf})`);
+  // 1단계: 산지 기상·작황을 먼저 한 번만 확정한다 (그룹 간 내용 불일치 방지)
+  console.log('[주간리포트] 산지 팩트 수집 시작');
+  const originFacts = await collectOriginFacts();
+  originFactsCache = { weekOf, facts: originFacts };
+  console.log(`[주간리포트] 산지 팩트 ${Object.keys(originFacts).length}곳 확정`);
+
+  // 2단계: 확정된 산지 팩트를 공유하며 품목별 리포트 생성
   const reports = [];
   for (const group of WEEKLY_REPORT_GROUPS) {
     try {
-      const r = await generateWeeklyReport(group);
+      const r = await generateWeeklyReport(group, originFacts);
       reports.push(r);
       console.log(`[주간리포트] ${group.title} 완료 (${r.text.length}자)`);
       await new Promise(res => setTimeout(res, 3000)); // rate limit 여유
@@ -1793,7 +1877,7 @@ app.get('/api/admin/weekly-report/generate', async (req, res) => {
     const g = WEEKLY_REPORT_GROUPS.find(x => x.id === only);
     if (!g) return res.json({ success: false, error: '없는 그룹 id' });
     try {
-      const r = await generateWeeklyReport(g);
+      const r = await generateWeeklyReport(g, originFactsCache.facts || {});
       return res.json({ success: true, report: r });
     } catch (e) { return res.json({ success: false, error: e.message }); }
   }
