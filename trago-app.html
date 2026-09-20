@@ -578,6 +578,39 @@ function pickItem(i) {
 // ══════════════════════════════════════════
 // 산지시황: 주간 리포트 (광고 게이트 적용)
 // ══════════════════════════════════════════
+// 상단 품목칩(state.item + state.origin)을 산지시황 리포트 그룹에 연결한다.
+// 품목과 그룹이 1:1이 아니라서(예: 복숭아 → '복숭아·자두') 매핑표를 둔다.
+const ITEM_TO_ORIGIN_GROUP = {
+  'import|바나나': 'banana',
+  'import|파인애플': 'pineapple',
+  'import|망고': 'mango',
+  'import|오렌지': 'orange',
+  'import|레몬': 'lemon_grapefruit',
+  'import|자몽': 'lemon_grapefruit',
+  'import|포도': 'grape',
+  'import|키위': 'kiwi',
+  'import|체리': 'berry_cherry',
+  'import|블루베리': 'berry_cherry',
+  'import|아보카도': 'avocado',
+  'import|멜론': 'kr_melon',
+  'domestic|사과': 'kr_apple',
+  'domestic|배': 'kr_pear',
+  'domestic|포도': 'kr_grape',
+  'domestic|감귤': 'kr_citrus',
+  'domestic|복숭아': 'kr_peach',
+  'domestic|자두': 'kr_peach',
+  'domestic|단감': 'kr_persimmon_fig',
+  'domestic|무화과': 'kr_persimmon_fig',
+  'domestic|수박': 'kr_melon',
+  'domestic|참외': 'kr_melon',
+  'domestic|멜론': 'kr_melon',
+  'domestic|토마토': 'kr_tomato',
+  'domestic|방울토마토': 'kr_tomato',
+  'domestic|딸기': 'kr_strawberry',
+  'domestic|키위': 'kiwi',
+  'domestic|블루베리': 'berry_cherry'
+};
+
 let originReportData = null;
 let originActiveId = null;
 
@@ -593,7 +626,7 @@ async function loadOriginReport() {
       return;
     }
     originReportData = j;
-    originActiveId = j.reports[0].id;
+    originActiveId = originGroupForCurrentItem() || j.reports[0].id;
     renderOriginReport();
   } catch (e) {
     bodyEl.innerHTML = '<div class="notice" style="padding:16px;">불러오기 실패. 잠시 후 다시 시도해주세요.</div>';
@@ -603,25 +636,25 @@ async function loadOriginReport() {
 function pickOriginGroup(id) {
   originActiveId = id;
   renderOriginReport();
-  document.getElementById('pane-origin').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// 상단에서 고른 품목에 맞는 리포트 그룹 id
+function originGroupForCurrentItem() {
+  return ITEM_TO_ORIGIN_GROUP[`${state.origin}|${state.item}`] || null;
 }
 
 function renderOriginReport() {
   const j = originReportData;
   if (!j) return;
-  // 주차 표시
-  if (j.weekOf) {
-    const d = new Date(j.weekOf + 'T00:00:00');
-    document.getElementById('orgWeekOf').textContent =
-      `${d.getMonth()+1}월 ${d.getDate()}일 기준`;
-  }
-  // 그룹 칩
-  document.getElementById('orgChips').innerHTML = j.reports.map(r =>
-    `<button class="chip${r.id===originActiveId?' on':''}" style="font-size:11.5px;padding:5px 11px;" onclick="pickOriginGroup('${r.id}')">${r.title}</button>`
-  ).join('');
+  // 날짜 표기는 본문에 자연스럽게 녹이므로 별도 표시하지 않는다
+  const chipsBox = document.getElementById('orgChips');
+  if (chipsBox) chipsBox.style.display = 'none';
 
   const rep = j.reports.find(r => r.id === originActiveId);
-  if (!rep) return;
+  if (!rep) {
+    document.getElementById('orgBody').innerHTML =
+      '<div class="notice" style="padding:16px;">이 품목은 아직 산지 리포트가 준비되지 않았어요.</div>';
+    return;
+  }
 
   // ## 섹션 파싱
   const sections = [];
@@ -660,6 +693,28 @@ function renderOriginReport() {
       </div>
     </div>` : '';
 
+  // 환율·운임·관세는 품목을 가리지 않고 원가에 영향을 주므로 모든 리포트 하단에 함께 보여준다
+  const macroRep = (rep.id !== 'macro') ? j.reports.find(r => r.id === 'macro') : null;
+  let macroHtml = '';
+  if (macroRep) {
+    const mSecs = [];
+    let mc = null;
+    (macroRep.text || '').split('\n').forEach(line => {
+      const m = line.match(/^##\s*(.+)$/);
+      if (m) { mc = { title: m[1].trim(), lines: [] }; mSecs.push(mc); }
+      else if (mc && line.trim()) mc.lines.push(line);
+    });
+    const body = mSecs.filter(s => s.title.replace(/\s/g,'') !== '한줄요약');
+    if (body.length) {
+      macroHtml = `
+        <div class="card" style="margin-bottom:10px;background:#F4F2EC;">
+          <b style="font-size:15px;">공통 변수 · 환율 · 물류 · 정책</b>
+          <div style="font-size:12px;color:var(--sub);margin-top:4px;">모든 품목의 원가에 함께 영향을 주는 요인이에요.</div>
+          ${body.map(s => `<div style="margin-top:12px;"><b style="font-size:13.5px;">${s.title}</b><div style="font-size:14px;color:var(--ink);margin-top:8px;">${fmtBody(s.lines)}</div></div>`).join('')}
+        </div>`;
+    }
+  }
+
   const sumLines = summarySec ? summarySec.lines.map(l => l.replace(/^[`\*\-\s]+|[`\*]+$/g,'').trim()).filter(Boolean) : [];
   const summaryHtml = sumLines.length ? `
     <div class="card" style="margin-bottom:12px;background:#EDF3F0;border-left:4px solid #157A5B;">
@@ -682,6 +737,7 @@ function renderOriginReport() {
     <div class="adgate">
       <div class="locked">
         ${rest.map(sectionCard).join('')}
+        ${macroHtml}
         ${srcHtml}
       </div>
     </div>`;
@@ -704,11 +760,9 @@ function goTab(t) {
   state.tab = t;
   // 산지시황은 자체 품목군 칩을 쓰므로 상단 품목 선택 UI를 숨겨 중복을 없앤다.
   // display를 ''로 되돌리면 원래 flex 레이아웃이 block으로 떨어져 깨지므로 hidden 속성으로 토글한다.
-  const isOrigin = (t === 'origin');
-  const seg = document.getElementById('seg-import')?.parentElement;
-  [document.getElementById('chips'), document.getElementById('varietyChips'), seg].forEach(el => {
-    if (el) el.hidden = isOrigin;
-  });
+  // 산지시황도 상단 품목칩을 그대로 쓴다(칩 중복 제거). 품종 서브탭만 숨긴다.
+  const vEl = document.getElementById('varietyChips');
+  if (vEl) vEl.hidden = (t === 'origin');
   document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
   document.getElementById('pane-'+t).classList.add('on');
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.pane===t));
@@ -721,7 +775,10 @@ function refresh() {
   else if (state.tab === 'nation') loadNation();
   else if (state.tab === 'stats') loadStats();
   else if (state.tab === 'insight') loadAIBriefing();
-  else if (state.tab === 'origin') loadOriginReport();
+  else if (state.tab === 'origin') {
+    originActiveId = originGroupForCurrentItem() || originActiveId;
+    loadOriginReport();
+  }
 }
 
 // ── 시황 브리핑: 탭마다 그 화면과 어울리는 항목만 선별해서 보여줌(중복 방지) ──

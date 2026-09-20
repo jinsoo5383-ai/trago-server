@@ -1617,15 +1617,59 @@ const WEEKLY_REPORT_GROUPS = [
     global_watch: '멕시코 미초아칸 작황 및 대미 수출 상황(글로벌 가격 결정 요인), 페루 수출 주차별 누적량, 케냐·탄자니아 아프리카 산지 확대, 유럽 수요 경합',
     focus: '페루 하스 시즌 진행률과 종료 시점, 멕시코 물량 전환기, 케냐 시즌 개시, 사이즈(count 16~30) 분포 변화, 건물중(dry matter)·숙성 상태별 입고 편차' },
 
-  { id: 'kr_fruit', title: '국산 과일', kr_items: ['사과', '배', '포도', '감귤', '복숭아', '자두', '단감', '무화과'],
-    kr_sources: '사과: 경북(안동·영주·청송)·충북 / 배: 전남(나주)·충남(천안) / 포도: 경북(김천·상주)·충북(영동) / 감귤: 제주 / 복숭아: 경북·충북 / 단감: 경남(창원·진주) / 무화과: 전남(영암)',
-    global_watch: '수입 과일과의 대체 경합(수입 포도·오렌지·체리 물량이 국산 시세에 주는 영향), 중국·일본 작황이 한국 수출입에 미치는 영향',
-    focus: '기상청 예보 및 폭염/장마/태풍 피해, 일소·열과 피해 면적(구체 수치), 과수화상병·탄저병 발생, 명절 출하 계획, 저장물량 방출 시점, 품종별 출하 시기' },
+  { id: 'kr_apple', title: '사과', kr_items: ['사과'],
+    kr_sources: '경북(안동·영주·청송·의성·문경)이 전국 재배면적의 70% 이상 / 충북 / 최근 기후변화로 강원·경기 신규 산지 확대',
+    global_watch: '수입 사과 검역 논의, 명절 수요, 저장물량 방출 시점',
+    focus: '봄철 저온·서리 피해, 여름 폭염·일소, 우박, 과수화상병, 품종별(홍로·후지·아리수) 출하 시기, 대과/소과 비율, 저장고 입고량',
+    peak: [8,9,10,11,12,1,2] },
 
-  { id: 'kr_veg', title: '국산 과채류', kr_items: ['수박', '참외', '멜론', '토마토', '방울토마토', '딸기'],
-    kr_sources: '수박: 충남(부여)·경북(고령) / 참외: 경북(성주) / 멜론: 전남·충남 / 토마토: 강원(철원·화천)·충남(부여) / 딸기: 충남(논산)·경남(진주·산청)',
-    global_watch: '시설재배 난방비(유가·전기료) 영향, 수입 토마토·딸기 여부, 종자·자재 가격',
-    focus: '폭염·한파에 따른 시설 내부 온도 관리, 작기 전환(여름→겨울 작형) 시점, 정식·육묘 상황, 병해충(탄저병·시들음병·총채벌레) 발생, 품종별 출하 비중' },
+  { id: 'kr_pear', title: '배', kr_items: ['배'],
+    kr_sources: '전남 나주 / 충남 천안·예산 / 경기 안성·평택 (경기·충남·전남이 전체 재배면적의 약 65%)',
+    global_watch: '명절(추석·설) 수요 집중, 배 수출(미국·대만), 대체 과일 경합',
+    focus: '개화기 저온·인공수분, 여름 폭염·일소, 태풍 낙과, 흑성병, 품종별(원황·신고·추황) 출하, 대과 비율, 저장 상태',
+    peak: [8,9,10,11,12,1,2] },
+
+  { id: 'kr_grape', title: '포도(국산)', kr_items: ['포도'],
+    kr_sources: '경북 김천·영천·상주·경산(전국 1위, 샤인머스캣 비중 60% 이상) / 충북 영동·옥천 / 충남 천안 / 경기 화성',
+    global_watch: '수입 포도(페루·칠레) 반입 시기와 국산 출하 경합, 샤인머스캣 과잉생산 및 품질 논란, 수출(베트남·홍콩) 동향',
+    focus: '품종별(샤인머스캣·캠벨얼리·거봉) 출하 비중과 시세 차이, 당도(브릭스)·송이 무게 규격, 열과·착색 불량, 저온저장 분산출하',
+    peak: [7,8,9,10,11] },
+
+  { id: 'kr_citrus', title: '감귤', kr_items: ['감귤'],
+    kr_sources: '제주 (노지감귤·하우스감귤·한라봉·천혜향 등 만감류)',
+    global_watch: '수입 오렌지 반입량과의 경합, 만감류 수출',
+    focus: '제주 기상(태풍·호우·일조량), 노지 vs 하우스 출하 전환 시점, 당산비·착색, 열과, 만감류 출하 시기, 비상품 유통 단속',
+    peak: [10,11,12,1,2,3,4] },
+
+  { id: 'kr_peach', title: '복숭아·자두', kr_items: ['복숭아', '자두'],
+    kr_sources: '복숭아: 경북 청도·영천·경산 / 충북 음성·충주 / 경기 이천 · 자두: 경북 김천·의성',
+    global_watch: '여름 과일 간 수요 경합(수박·포도), 수출 동향',
+    focus: '장마·폭염에 따른 당도와 경도 변화, 품종별(천도·백도·황도) 출하 시기, 무름·열과, 선별 규격, 조기 출하 여부',
+    peak: [6,7,8,9] },
+
+  { id: 'kr_persimmon_fig', title: '단감·무화과', kr_items: ['단감', '무화과'],
+    kr_sources: '단감: 경남 창원·진주·김해 · 무화과: 전남 영암 삼호읍(전국 최대, 500ha·1,596농가)',
+    global_watch: '단감 수출(동남아), 무화과 저장성 한계에 따른 유통 반경',
+    focus: '수확기 강우와 탄저병(단감의 핵심 변수), 일소 피해, 무화과 숙도·유통기한, 출하 개시·종료 시점, 가공용 전환 비율',
+    peak: [8,9,10,11,12] },
+
+  { id: 'kr_melon', title: '수박·참외·멜론', kr_items: ['수박', '참외', '멜론'],
+    kr_sources: '수박: 충남 논산·부여, 경북 고령 / 참외: 경북 성주 / 멜론: 전남 나주·영광, 충남 부여',
+    global_watch: '여름 성수기 수요, 수입 멜론 반입 여부',
+    focus: '시설 내 온도·일조량, 작기 전환(봄작형→가을작형) 시점, 당도, 수박 공동과·피수박, 참외 성주 출하량, 규격별(통·kg) 비중',
+    peak: [4,5,6,7,8,9] },
+
+  { id: 'kr_tomato', title: '토마토·방울토마토', kr_items: ['토마토', '방울토마토'],
+    kr_sources: '강원 철원·화천(여름) / 충남 부여 / 전남 담양 / 부산 강서(대저, 겨울~봄)',
+    global_watch: '시설재배 난방비(유가·전기료), 수입 토마토 여부',
+    focus: '폭염·한파에 따른 착과 불량과 낙과, 작형 전환(여름 고랭지→겨울 시설) 시점, 품종별(대저·완숙·방울) 비중, 당도, 상품성 등급 분포',
+    peak: [1,2,3,4,5,6,7,8,9,10,11,12] },
+
+  { id: 'kr_strawberry', title: '딸기', kr_items: ['딸기'],
+    kr_sources: '충남 논산(재배면적 전국 최대) / 경남 산청·진주·밀양 / 전북',
+    global_watch: '딸기 수출(홍콩·싱가포르·동남아) 확대, 항공운임',
+    focus: '정식(아주심기) 시기와 육묘 상태, 탄저병·시들음병, 폭염에 따른 화아분화 지연, 품종별(설향·금실·킹스베리) 비중, 초기 출하량과 대과 비율',
+    peak: [11,12,1,2,3,4,5] },
 
   { id: 'macro', title: '공통 변수(환율·물류·정책)', kr_items: [],
     kr_sources: '전 품목 공통',
@@ -1651,6 +1695,7 @@ function loadWeeklyStore() {
     if (fs.existsSync(WEEKLY_STORE_PATH)) {
       const j = JSON.parse(fs.readFileSync(WEEKLY_STORE_PATH, 'utf-8'));
       Object.assign(weeklyReportStore, j);
+      if (j.originFacts) originFactsCache = { weekOf: j.weekOf, facts: j.originFacts };
       console.log(`[주간리포트] 로드 완료: ${weeklyReportStore.weekOf || '없음'}`);
     }
   } catch (e) { console.error('[주간리포트] 로드 실패:', e.message); }
@@ -1668,16 +1713,25 @@ loadWeeklyStore();
 // 각자 다른 기사를 근거로 삼아 "고온 건조" vs "잦은 강우"처럼 서로 모순된 내용이 나왔다.
 // 그래서 산지 기상·작황은 먼저 한 번만 조회해 확정하고, 각 품목 리포트가 그 값을 공유한다.
 const ORIGIN_FACTS = [
-  { id: 'ph', name: '필리핀 (민다나오)', crops: '바나나, 파인애플' },
-  { id: 'vn', name: '베트남', crops: '바나나, 파인애플, 망고' },
-  { id: 'ec', name: '에콰도르·과테말라·코스타리카 (중미)', crops: '바나나, 파인애플' },
-  { id: 'pe', name: '페루', crops: '망고, 포도, 아보카도, 블루베리' },
-  { id: 'cl', name: '칠레', crops: '포도, 체리, 블루베리, 레몬, 오렌지' },
-  { id: 'us', name: '미국 (캘리포니아·워싱턴·플로리다)', crops: '오렌지, 레몬, 자몽, 체리' },
-  { id: 'za', name: '남아프리카공화국', crops: '오렌지, 레몬, 자몽, 포도' },
-  { id: 'nz', name: '뉴질랜드', crops: '키위' },
-  { id: 'mx', name: '멕시코', crops: '아보카도, 망고' },
-  { id: 'kr', name: '대한민국 (국내 주산지)', crops: '사과, 배, 포도, 감귤, 복숭아, 단감, 수박, 참외, 토마토, 딸기' }
+  // 수입 산지 (매주 갱신)
+  { id: 'ph', name: '필리핀 (민다나오)', crops: '바나나, 파인애플', cycle: 'weekly' },
+  { id: 'vn', name: '베트남', crops: '바나나, 파인애플, 망고', cycle: 'weekly' },
+  { id: 'ec', name: '에콰도르·과테말라·코스타리카 (중미)', crops: '바나나, 파인애플', cycle: 'weekly' },
+  { id: 'pe', name: '페루', crops: '망고, 포도, 아보카도, 블루베리', cycle: 'weekly' },
+  { id: 'cl', name: '칠레', crops: '포도, 체리, 블루베리, 레몬, 오렌지', cycle: 'weekly' },
+  { id: 'us', name: '미국 (캘리포니아·워싱턴·플로리다)', crops: '오렌지, 레몬, 자몽, 체리', cycle: 'weekly' },
+  { id: 'za', name: '남아프리카공화국', crops: '오렌지, 레몬, 자몽, 포도', cycle: 'weekly' },
+  { id: 'nz', name: '뉴질랜드', crops: '키위', cycle: 'weekly' },
+  { id: 'mx', name: '멕시코', crops: '아보카도, 망고', cycle: 'weekly' },
+  // 국내 산지 (격주 갱신 — 기상·작황은 주 단위로 크게 변하지 않음)
+  { id: 'kr_gb', name: '경북 (안동·영주·청송·의성·문경·김천·상주·영천·경산·성주·청도)', crops: '사과, 포도(샤인머스캣), 복숭아, 자두, 참외', cycle: 'biweekly' },
+  { id: 'kr_gn', name: '경남 (창원·진주·김해·산청·밀양)', crops: '단감, 딸기', cycle: 'biweekly' },
+  { id: 'kr_cn', name: '충남 (논산·부여·천안·예산)', crops: '배, 딸기, 수박, 토마토, 멜론', cycle: 'biweekly' },
+  { id: 'kr_cb', name: '충북 (영동·옥천·음성·충주)', crops: '포도, 복숭아, 사과', cycle: 'biweekly' },
+  { id: 'kr_jn', name: '전남 (나주·영암·담양·영광)', crops: '배, 무화과, 멜론, 토마토', cycle: 'biweekly' },
+  { id: 'kr_jj', name: '제주', crops: '감귤, 한라봉, 천혜향', cycle: 'biweekly' },
+  { id: 'kr_gw', name: '강원 (철원·화천·평창)', crops: '토마토, 고랭지 채소, 사과(신규 산지)', cycle: 'biweekly' },
+  { id: 'kr_gg', name: '경기 (안성·평택·화성·이천)', crops: '배, 포도, 복숭아', cycle: 'biweekly' }
 ];
 
 let originFactsCache = { weekOf: null, facts: {} };
@@ -1685,7 +1739,14 @@ let originFactsCache = { weekOf: null, facts: {} };
 async function collectOriginFacts() {
   const today = new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10);
   const facts = {};
+  const prevCache = originFactsCache;
   for (const o of ORIGIN_FACTS) {
+    // 국내 산지는 격주 갱신 — 최근 것이 있으면 그대로 쓴다
+    if (!shouldRefreshOrigin(o, prevCache)) {
+      facts[o.id] = prevCache.facts[o.id];
+      console.log(`[산지팩트] ${o.name} 재사용(격주)`);
+      continue;
+    }
     const prompt = `오늘은 ${today}입니다. Google 검색으로 ${o.name}의 **현재 시점** 농업 기상·작황 상황을 확인해 주세요.
 대상 작물: ${o.crops}
 
@@ -1701,8 +1762,8 @@ async function collectOriginFacts() {
 물류: (항만·운임·선적 이슈)
 정책: (관세·검역·통화 등 특이사항)`;
     try {
-      const res = await callGemini(prompt, true, 2000, 800, true);
-      facts[o.id] = { name: o.name, text: res.text, sources: res.sources };
+      const res = await callGemini(prompt, true, 1200, 600, true);
+      facts[o.id] = { name: o.name, text: res.text, sources: res.sources, collectedAt: new Date().toISOString() };
       console.log(`[산지팩트] ${o.name} 수집 완료`);
       await new Promise(r => setTimeout(r, 2500));
     } catch (e) {
@@ -1722,6 +1783,7 @@ function originFactsFor(group, facts) {
 
 // 각 품목 그룹이 참조할 산지 id 목록
 const WEEKLY_GROUP_ORIGINS = {
+  // 수입
   banana: ['ph', 'vn', 'ec'],
   pineapple: ['ph', 'ec', 'vn'],
   mango: ['pe', 'vn', 'mx'],
@@ -1731,10 +1793,34 @@ const WEEKLY_GROUP_ORIGINS = {
   kiwi: ['nz', 'cl'],
   berry_cherry: ['cl', 'pe', 'us'],
   avocado: ['pe', 'mx'],
-  kr_fruit: ['kr'],
-  kr_veg: ['kr'],
+  // 국산 — 품목별 실제 주산지만 참조
+  kr_apple: ['kr_gb', 'kr_cb', 'kr_gw'],
+  kr_pear: ['kr_jn', 'kr_cn', 'kr_gg'],
+  kr_grape: ['kr_gb', 'kr_cb', 'kr_gg'],
+  kr_citrus: ['kr_jj'],
+  kr_peach: ['kr_gb', 'kr_cb', 'kr_gg'],
+  kr_persimmon_fig: ['kr_gn', 'kr_jn'],
+  kr_melon: ['kr_cn', 'kr_gb', 'kr_jn'],
+  kr_tomato: ['kr_gw', 'kr_cn', 'kr_jn', 'kr_gn'],
+  kr_strawberry: ['kr_cn', 'kr_gn'],
   macro: []
 };
+
+// 이번 달이 해당 품목 성수기인지 (peak 미지정이면 항상 생성)
+function isInSeason(group) {
+  if (!group.peak || !group.peak.length) return true;
+  const m = new Date(Date.now() + 9*3600*1000).getUTCMonth() + 1;
+  return group.peak.includes(m);
+}
+
+// 격주 산지는 지난주에 수집했으면 재사용한다 (Gemini 호출 절감)
+function shouldRefreshOrigin(o, cache) {
+  if (o.cycle !== 'biweekly') return true;      // 수입 산지는 매주
+  const prev = cache?.facts?.[o.id];
+  if (!prev || !prev.collectedAt) return true;  // 수집 이력 없으면 수집
+  const days = (Date.now() - new Date(prev.collectedAt).getTime()) / 86400000;
+  return days >= 12;                            // 12일 지났으면 갱신
+}
 
 async function groupPriceContext(group) {
   const out = [];
@@ -1790,6 +1876,7 @@ ${priceCtx || '(해당 없음)'}
 3-1. 확인되지 않은 내용은 절대 추측하거나 그럴듯하게 지어내지 마세요. 검색으로 확인 못 한 항목은 "확인된 정보 없음"이라고 명시하세요. 태풍 이름, 기상 현상, 수치는 특히 정확해야 하며, 불확실하면 언급하지 마세요.
 4. 산지가 여러 곳인 품목은 산지별로 나눠서 쓰세요. "미국은 ~, 이스라엘은 ~" 형태로 구분하고, 지금 어느 산지가 출하 시즌인지 명시하세요.
 5. 존댓말, 실무 톤. 과장·마케팅 표현 금지.
+5-1. 각 사실이 언제 기준인지 문장 안에 자연스럽게 녹여 쓰세요. "9월 3주차 들어", "이달 중순부터", "최근 2주간"처럼요. 별도로 "기준일:" 같은 표기를 따로 달지 마세요.
 6. 독자는 도매시장 중도매인·시장 상인입니다. 영어 약어나 무역·금융 전문용어를 쓸 때는 반드시 괄호로 쉬운 우리말을 함께 적으세요. 예: "Landed Cost(수입 원가)", "인코텀즈(무역 계약 조건)", "Biosecurity(방역)", "TR4(바나나 시들음병)". 괄호 설명 없이 영어 약어만 쓰면 안 됩니다.
 7. 한 문장은 짧게 쓰세요. 한 문장에 두 가지 이상을 담지 말고, 길어지면 나누세요.
 
@@ -1836,6 +1923,13 @@ async function runWeeklyReportBatch() {
   // 2단계: 확정된 산지 팩트를 공유하며 품목별 리포트 생성
   const reports = [];
   for (const group of WEEKLY_REPORT_GROUPS) {
+    // 비수기 품목은 새로 쓸 내용이 없어 직전 리포트를 유지한다 (Gemini 호출 절감)
+    if (!isInSeason(group)) {
+      const prev = (weeklyReportStore.reports || []).find(r => r.id === group.id);
+      if (prev) { reports.push(prev); console.log(`[주간리포트] ${group.title} 비수기 — 직전 리포트 유지`); continue; }
+      console.log(`[주간리포트] ${group.title} 비수기 — 건너뜀`);
+      continue;
+    }
     try {
       const r = await generateWeeklyReport(group, originFacts);
       reports.push(r);
@@ -1849,6 +1943,7 @@ async function runWeeklyReportBatch() {
     weeklyReportStore.generatedAt = new Date().toISOString();
     weeklyReportStore.weekOf = weekOf;
     weeklyReportStore.reports = reports;
+    weeklyReportStore.originFacts = originFacts;
     saveWeeklyStore();
     console.log(`[주간리포트] 저장 완료: ${reports.length}개 그룹`);
   }
