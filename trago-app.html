@@ -611,6 +611,18 @@ const ITEM_TO_ORIGIN_GROUP = {
   'domestic|블루베리': 'berry_cherry'
 };
 
+// 비수기 품목에 언제부터 시황이 나오는지 알려준다
+const OFF_SEASON_NOTE = {
+  kr_apple: '햇사과가 나오는 8월부터 다시 찾아뵐게요.',
+  kr_pear: '햇배 출하가 시작되는 8월부터 다시 찾아뵐게요.',
+  kr_grape: '노지 포도가 나오는 7월부터 다시 찾아뵐게요.',
+  kr_citrus: '제주 감귤 출하가 시작되는 10월부터 다시 찾아뵐게요.',
+  kr_peach: '복숭아 철이 시작되는 6월부터 다시 찾아뵐게요.',
+  kr_persimmon_fig: '단감·무화과가 나오는 8월부터 다시 찾아뵐게요.',
+  kr_melon: '수박·참외 철이 시작되는 4월부터 다시 찾아뵐게요.',
+  kr_strawberry: '딸기 출하가 시작되는 11월부터 다시 찾아뵐게요.'
+};
+
 let originReportData = null;
 let originActiveId = null;
 
@@ -651,8 +663,15 @@ function renderOriginReport() {
 
   const rep = j.reports.find(r => r.id === originActiveId);
   if (!rep) {
-    document.getElementById('orgBody').innerHTML =
-      '<div class="notice" style="padding:16px;">이 품목은 아직 산지 리포트가 준비되지 않았어요.</div>';
+    // 비수기 품목은 산지에서 나올 이야기 자체가 없어 생성하지 않는다
+    const season = OFF_SEASON_NOTE[originActiveId] || '';
+    document.getElementById('orgBody').innerHTML = `
+      <div class="card" style="text-align:center;padding:28px 18px;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px;">지금은 ${state.item} 출하 비수기예요</div>
+        <div style="font-size:13.5px;color:var(--sub);line-height:1.7;">
+          산지에서 아직 본격적인 움직임이 없어 이번 주 시황은 쉬어갑니다.${season ? '<br>' + season : ''}
+        </div>
+      </div>`;
     return;
   }
 
