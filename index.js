@@ -827,7 +827,12 @@ app.get('/api/forecast', async (req, res) => {
   const fc = FRUIT_CODES[item];
   if (!fc) return res.json({ success: false, error: '지원하지 않는 품목입니다.' });
   try {
-    const series = await computeDailySeries(fc, item, origin, 28);
+    const fullSeries = await computeDailySeries(fc, item, origin, 28);
+    // 표본 부족일은 '마지막 가격'과 변동성을 크게 왜곡하므로 제외
+    const thinMin = thinDayThreshold(fullSeries.map(r => r.trades || 0));
+    const solid = fullSeries.filter(r => !isThinDay(r.trades, thinMin));
+    const series = solid.length >= 8 ? solid : fullSeries;
+    const droppedThinDays = fullSeries.length - series.length;
     if (series.length < 8) {
       return res.json({ success: false, error: '예측에 필요한 최소 데이터(8일)가 부족합니다.' });
     }
@@ -885,7 +890,7 @@ app.get('/api/forecast', async (req, res) => {
     res.json({
       success: true, item, origin,
       lastDate: series[n-1].date, lastPrice: last,
-      dataDays: n, dailyVolatilityPct: Math.round(sigma * 1000) / 10,
+      dataDays: n, droppedThinDays, dailyVolatilityPct: Math.round(sigma * 1000) / 10,
       seasonalApplied: seasonalUsed,
       forecasts,
       caveat: seasonalUsed
@@ -1244,20 +1249,34 @@ app.get('/api/weekly-moves', (req, res) => {
   const moves = [];
   for (const item of items) {
     const data = priceArchive[`${origin}|${item}`] || {};
+    const thinMin = thinDayThreshold(Object.values(data).map(d => d.t || 0));
     const tw = [], lw = [];
+    let thinDays = 0;
     for (const [date, d] of Object.entries(data)) {
-      if (date > c1 && date <= c0) tw.push(d.p);
-      else if (date > c2 && date <= c1) lw.push(d.p);
+      if (!(d.p > 0)) continue;
+      const inTw = date > c1 && date <= c0, inLw = date > c2 && date <= c1;
+      if (!inTw && !inLw) continue;
+      if (isThinDay(d.t, thinMin)) { thinDays++; continue; }
+      (inTw ? tw : lw).push(d);
     }
     if (tw.length < 2 || lw.length < 2) continue; // 데이터 부족 품목은 제외
-    const t = avg(tw), l = avg(lw);
+    // 물량가중평균: 0.1톤 팔린 날과 50톤 팔린 날을 같은 무게로 평균내지 않는다 (/api/stats 주간비교와 같은 방식)
+    const wavg = rows => {
+      const w = rows.reduce((a, r) => a + Math.max(r.v || 0, 0.05), 0);
+      return rows.reduce((a, r) => a + r.p * Math.max(r.v || 0, 0.05), 0) / w;
+    };
+    const t = wavg(tw), l = wavg(lw);
+    // 두 주 모두 믿을 만한 날이 3일 이상이어야 '표본 충분'
+    const lowSample = tw.length < 3 || lw.length < 3;
     const boxKg = SERVER_BOX_KG[origin === 'domestic' ? 'domestic' : 'import'][item] || 10;
     moves.push({
       item, chgPct: Math.round((t - l) / l * 1000) / 10,
-      thisWeekKg: Math.round(t), thisWeekBox: Math.round(t * boxKg), boxKg
+      thisWeekKg: Math.round(t), thisWeekBox: Math.round(t * boxKg), boxKg,
+      lowSample, thinDays
     });
   }
-  moves.sort((a, b) => a.chgPct - b.chgPct); // 싸진 순
+  // 싸진 순, 단 표본 적은 품목은 아래로 (순위를 왜곡하지 않게)
+  moves.sort((a, b) => (a.lowSample - b.lowSample) || (a.chgPct - b.chgPct));
   res.json({ success: true, origin, moves });
 });
 
@@ -1447,7 +1466,18 @@ app.get('/admin', (req, res) => {
 const ADMIN_KEY = process.env.ADMIN_KEY || 'jay2026trago';
 // 하루 거래건수가 이 값 미만이면 표본 부족으로 보고 평균가를 신뢰하지 않음
 // (비수기 품목은 하루 2~3건만 거래되어 평균이 크게 흔들림)
-const MIN_RELIABLE_TRADES = 20;
+const MIN_RELIABLE_TRADES = 20; // (구) 고정 기준 - 참고용으로만 남김
+
+// 표본 부족일 판정: 품목마다 평소 거래건수가 수십~수백 건으로 크게 달라 고정 기준(20건)은 맞지 않는다.
+// 그 품목 중앙값 거래건수의 30% 미만(최소 5건)인 날은 한두 건 낙찰가에 평균이 휘둘리므로
+// 등락·예측 계산에서 뺀다. (예: 수입 블루베리 10/10 3건 → 43,000원/kg, 평소 2만원대)
+// t(거래건수)가 기록되지 않은 옛 데이터는 판단 불가라 그대로 둔다.
+function thinDayThreshold(tradesList) {
+  const ts = tradesList.filter(t => t > 0).sort((a, b) => a - b);
+  const med = ts.length ? ts[Math.floor(ts.length / 2)] : 0;
+  return Math.max(5, Math.round(med * 0.3));
+}
+function isThinDay(t, min) { return t != null && t < min; }
 function checkAdmin(req, res) {
   if (req.query.key !== ADMIN_KEY) { res.status(403).json({ success: false, error: '권한 없음' }); return false; }
   return true;
@@ -1490,14 +1520,15 @@ app.get('/api/admin/archive/health', (req, res) => {
     const prices = rows.map(r => r.p).filter(p => p > 0).sort((a,b) => a-b);
     const med = prices[Math.floor(prices.length/2)] || 0;
     // 표본 부족일(거래건수 MIN_RELIABLE_TRADES 미만)을 저신뢰 구간으로 표시
-    const lowSample = rows.filter(r => (r.t || 0) < MIN_RELIABLE_TRADES);
+    const thinMin = thinDayThreshold(rows.map(r => r.t || 0));
+    const lowSample = rows.filter(r => isThinDay(r.t, thinMin));
     const tradesArr = rows.map(r => r.t || 0).sort((a,b) => a-b);
     const medTrades = tradesArr[Math.floor(tradesArr.length/2)] || 0;
     report.push({
       item, origin, count: rows.length,
       firstDate: rows[0].date, lastDate: rows[rows.length-1].date,
       medianPrice: med,
-      medianTrades: medTrades,
+      medianTrades: medTrades, thinThreshold: thinMin,
       lowSampleDays: lowSample.length,
       lowSample: lowSample.map(o => ({ date: o.date, p: o.p, t: o.t }))
     });

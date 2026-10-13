@@ -1301,13 +1301,13 @@ async function loadWeeklyMoves() {
       const active = m.item === state.item;
       return `
       <div onclick="pickItem('${m.item}')" style="display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:0.5px solid #f1efe8;cursor:pointer;border-radius:8px;${active ? 'background:rgba(21,122,91,0.07);' : ''}">
-        <div style="flex:1;font-size:13.5px;font-weight:${active ? '800' : '600'};">${m.item}</div>
+        <div style="flex:1;font-size:13.5px;font-weight:${active ? '800' : '600'};">${m.item}${m.lowSample ? '<span class="lowsample">표본적음</span>' : ''}</div>
         <div style="text-align:right;font-variant-numeric:tabular-nums;">
           <div style="font-size:13px;font-weight:700;">₩${m.thisWeekBox.toLocaleString()}<span style="font-size:10px;color:var(--faint);font-weight:500;"> /${m.boxKg}kg상자</span></div>
         </div>
         <span style="width:56px;text-align:right;font-size:12px;font-weight:700;color:${color};font-variant-numeric:tabular-nums;">${arrow} ${Math.abs(m.chgPct)}%</span>
       </div>`;
-    }).join('');
+    }).join('') + (j.moves.some(m => m.lowSample) ? '<div style="font-size:11px;color:var(--faint);text-align:center;padding:10px 8px 4px;">표본적음 = 거래가 적어 등락폭이 크게 튈 수 있어요, 참고만 하세요</div>' : '');
   } catch(e) {
     el.innerHTML = '';
   }
