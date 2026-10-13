@@ -620,6 +620,54 @@ function toKg(unitQty, unitNm) {
   return u; // kg 또는 미표기
 }
 
+// ── 단위 오입력 방어: 품목별로 '있을 수 없는' 상자 크기 ──
+// 일부 법인이 규격을 반복해서 잘못 입력한다. 상자값은 다른 곳과 비슷한데 kg만 틀려서 kg당 단가가 크게 왜곡됨.
+//  · 블루베리: 서울청과 '10kg 상자' 75,000원 (실제는 1~2kg 상자) → kg당 7,500원으로 평균을 끌어내림 (9/16, 10/7 등)
+//  · 자몽: 중앙청과 '5kg 상자' 37,858원 (실제는 15~18kg 상자) → kg당 7,500원으로 평균을 끌어올림 (9/22 5,108원)
+// 같은 날 중앙값 기준으로는 못 잡는다: 오입력 물량이 그날 거래의 절반을 넘기도 해서 오히려 정상 거래를 지우게 됨.
+// 확인된 품목만 넣는다. 범위 밖 거래는 가격 계산에서 제외(원본은 그대로 보관).
+const UNIT_KG_RANGE = {
+  '블루베리': [0.1, 4],
+  '자몽': [8, 20],
+};
+function isImplausibleUnit(item, uq) {
+  const r = UNIT_KG_RANGE[item];
+  return !!r && (uq < r[0] || uq > r[1]);
+}
+
+// 하루치 원본 거래 → 물량가중 kg당 평균가. 실시간 계산과 과거 재계산이 같은 규칙을 쓰도록 한 곳에 모음.
+function aggregateDay(arr, item, origin, date) {
+  arr = applyOriginFilter(arr, item, origin);
+  let totW = 0, totVal = 0, trades = 0;
+  // 극단적 오류값만 제외한다. (예: 2026-08-14 바나나에 낙찰가 93,939,393원짜리
+  // 오입력 1건이 섞여 그날 평균가가 1,923원 → 5,509원으로 왜곡된 사례)
+  // 기준을 중앙값 20배로 크게 잡아, 소포장 프리미엄이나 하우스/노지 품종 차이 같은
+  // 정상적인 가격 편차(최대 10배 수준)는 그대로 살린다.
+  const unitPrices = [];
+  arr.forEach(d => {
+    const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm);
+    if (price && uq && !isImplausibleUnit(item, uq)) unitPrices.push(price / uq);
+  });
+  let medUnit = 0;
+  if (unitPrices.length) {
+    const s = [...unitPrices].sort((a, b) => a - b);
+    medUnit = s[Math.floor(s.length / 2)];
+  }
+  let dropped = 0, badUnit = 0;
+  arr.forEach(d => {
+    const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm), q = parseFloat(d.qty) || 1;
+    if (!price || !uq) return;
+    if (isImplausibleUnit(item, uq)) { badUnit++; return; }
+    const perKg = price / uq;
+    if (medUnit > 0 && (perKg > medUnit * 20 || perKg < medUnit / 20)) { dropped++; return; }
+    const w = uq * q;
+    totW += w; totVal += perKg * w; trades++;
+  });
+  if (dropped > 0) console.log(`[오류값제외] ${date} ${item}/${origin}: ${dropped}건 (중앙값 ${Math.round(medUnit)}원/kg의 20배 초과)`);
+  if (totW <= 0) return null;
+  return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades, badUnit };
+}
+
 async function fetchTradesDay(date, l, m, marketCd = '', maxPages = 10) {
   const key = `${date}|${l}|${m}`; // marketCd는 키에서 제외 - 항상 전체를 캐시
   let all = tradesDayCache.get(key);
@@ -750,35 +798,10 @@ async function computeDailySeries(fc, item, origin, days) {
     const batch = needFetch.slice(i, i + CHUNK);
     const results = await Promise.all(batch.map(async date => {
       try {
-        let arr = await fetchTradesDay(date, fc.l, fc.m);
-        arr = applyOriginFilter(arr, item, origin);
-        let totW = 0, totVal = 0, trades = 0;
-        // 극단적 오류값만 제외한다. (예: 2026-08-14 바나나에 낙찰가 93,939,393원짜리
-        // 오입력 1건이 섞여 그날 평균가가 1,923원 → 5,509원으로 왜곡된 사례)
-        // 기준을 중앙값 20배로 크게 잡아, 소포장 프리미엄이나 하우스/노지 품종 차이 같은
-        // 정상적인 가격 편차(최대 10배 수준)는 그대로 살린다.
-        const unitPrices = [];
-        arr.forEach(d => {
-          const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm);
-          if (price && uq) unitPrices.push(price / uq);
-        });
-        let medUnit = 0;
-        if (unitPrices.length) {
-          const s = [...unitPrices].sort((a, b) => a - b);
-          medUnit = s[Math.floor(s.length / 2)];
-        }
-        let dropped = 0;
-        arr.forEach(d => {
-          const price = parseFloat(d.scsbd_prc), uq = toKg(d.unit_qty, d.unit_nm), q = parseFloat(d.qty) || 1;
-          if (!price || !uq) return;
-          const perKg = price / uq;
-          if (medUnit > 0 && (perKg > medUnit * 20 || perKg < medUnit / 20)) { dropped++; return; }
-          const w = uq * q;
-          totW += w; totVal += perKg * w; trades++;
-        });
-        if (dropped > 0) console.log(`[오류값제외] ${date} ${item}/${origin}: ${dropped}건 (중앙값 ${Math.round(medUnit)}원/kg의 20배 초과)`);
-        if (totW <= 0) return null;
-        return { date, volumeTons: Math.round(totW/100)/10, avgPricePerKg: Math.round(totVal/totW), trades };
+        const arr = await fetchTradesDay(date, fc.l, fc.m);
+        const r = aggregateDay(arr, item, origin, date);
+        if (!r) return null;
+        return { date: r.date, volumeTons: r.volumeTons, avgPricePerKg: r.avgPricePerKg, trades: r.trades };
       } catch (e) { return null; }
     }));
     results.forEach(r => { if (r) series.push(r); });
@@ -1510,6 +1533,35 @@ app.get('/api/admin/archive/refetch', async (req, res) => {
 });
 
 // 관리자용: 전체 아카이브 현황 + 이상값 탐지
+// 계산 규칙을 바꾼 뒤 과거 값을 새 규칙으로 다시 맞출 때 쓴다. 정부 API(약 5주 보관)가 아니라 서버에 쌓아둔 원본을 읽음.
+// 기본은 미리보기(dry run): 바뀌는 날짜와 전후 값만 보여준다. &apply=1 이면 백업 후 저장.
+app.get('/api/admin/archive/recompute', (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const { item, origin } = req.query;
+  const apply = req.query.apply === '1';
+  const fc = FRUIT_CODES[item];
+  if (!fc || !origin) return res.json({ success: false, error: 'item, origin 필요' });
+  const key = `${origin}|${item}`;
+  const data = priceArchive[key] || {};
+  const changes = [], noRaw = [];
+  for (const date of Object.keys(data).sort()) {
+    const raw = readRawFile(date, fc.l, fc.m);
+    if (!raw || !raw.length) { noRaw.push(date); continue; }
+    const r = aggregateDay(raw, item, origin, date);
+    if (!r) continue;
+    const old = data[date];
+    if (old.p !== r.avgPricePerKg || old.v !== r.volumeTons || old.t !== r.trades) {
+      changes.push({ date, before: { p: old.p, v: old.v, t: old.t }, after: { p: r.avgPricePerKg, v: r.volumeTons, t: r.trades }, badUnit: r.badUnit });
+    }
+  }
+  if (apply && changes.length) {
+    backupPriceArchive('before-recompute'); // 되돌릴 수 있게 직전 상태를 남긴다
+    changes.forEach(c => { data[c.date] = { p: c.after.p, v: c.after.v, t: c.after.t }; });
+    savePriceArchive();
+  }
+  res.json({ success: true, item, origin, applied: apply && changes.length > 0, changed: changes.length, noRawDays: noRaw.length, noRaw, changes });
+});
+
 app.get('/api/admin/archive/health', (req, res) => {
   if (!checkAdmin(req, res)) return;
   const report = [];
