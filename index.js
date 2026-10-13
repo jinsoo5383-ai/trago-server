@@ -1217,7 +1217,9 @@ function backupPriceArchive(tag) {
   try {
     const dir = getBackupDir();
     const kst = new Date(Date.now() + 9*3600*1000);
-    const stamp = kst.toISOString().slice(0,10) + (tag ? `_${tag}` : '');
+    // 이름표가 붙은 수동 백업은 시각까지 넣는다. (같은 날 같은 이름표로 두 번 백업하면 앞의 것을 덮어쓰던 문제 -
+    // 10/13 블루베리→자몽 연속 재계산 때 블루베리 직전 상태가 사라짐)
+    const stamp = kst.toISOString().slice(0,10) + (tag ? `_${kst.toISOString().slice(11,19).replace(/:/g,'')}_${tag}` : '');
     const path = `${dir}/price-archive_${stamp}.json`;
     if (fs.existsSync(path) && !tag) return; // 같은 날 자동백업은 1회만
     fs.writeFileSync(path, JSON.stringify(priceArchive));
